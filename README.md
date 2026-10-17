@@ -39,3 +39,16 @@
 Создайте новый **Large / Expert / Classic characters** мир **после включения модов**. В Expert оба получают личные мешки с наградами. Рекомендуемое распределение: стрелок + призыватель, или воин + маг. До запуска мира прочтите [гайд по настройкам](docs/COOP_GUIDE_RU.md).
 
 **Исходники ссылок:** [каталог 26 модов](manifest/mods.json), [официальная инструкция tModLoader для ModPacks](https://docs.tmodloader.net/docs/stable/md__github_workspace_src_t_mod_loader__terraria_release_extras__dedicated_server_utils__r_e_a_d_m_e.html).
+
+
+---
+
+## NEW: NO CALAMITY DUO (40 / 52 / 39 mods)
+
+- **40-mod recommended**: Thorium + standalone Calamity Fables + Consolaria + QoL.
+- **52-mod epic**: more content, The Stars Above, Subworld Library, Vitality.
+- **39-mod Thorium-only**: no Calamity Mod, no Fables.
+- No standalone music mods in these profiles.
+- Start **INSTALL_NO_CALAMITY.cmd** (optional `-Profile epic`, `-Profile thorium`, or `-Method workshop`).
+- [Russian instructions](docs/NO_CALAMITY_DUO_RU.md).
+- Workshop download in this installer is best-effort; download remaining mods via tModLoader if anonymous SteamCMD fails.

@@ -1,0 +1,4 @@
+04_NO_CALAMITY_DUO_40
+40 mods. No original Calamity Mod; no standalone music mods.
+Original mod .tmod files download separately through official Workshop.
+Not playtested in multiplayer; create a new world after enabling.
