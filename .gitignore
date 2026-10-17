@@ -1,0 +1,10 @@
+# Do not re-host other authors' mods or credentials
+*.tmod
+steamcmd/
+steamapps/
+*.log
+*.zip
+*.bak
+saves/
+Worlds/
+Players/

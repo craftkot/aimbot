@@ -1,0 +1,158 @@
+[
+  {
+    "name": "Calamity Mod",
+    "internalName": "CalamityMod",
+    "workshopId": "2824688072",
+    "profiles": "RM"
+  },
+  {
+    "name": "Calamity Mod Music",
+    "internalName": "CalamityModMusic",
+    "workshopId": "2824688266",
+    "profiles": "RM"
+  },
+  {
+    "name": "Calamity Fables",
+    "internalName": "CalamityFables",
+    "workshopId": "3449156562",
+    "profiles": "RMF"
+  },
+  {
+    "name": "absoluteAquarian Utilities",
+    "internalName": "SerousCommonLib",
+    "workshopId": "2908170107",
+    "profiles": "RMF"
+  },
+  {
+    "name": "Magic Storage",
+    "internalName": "MagicStorage",
+    "workshopId": "2563309347",
+    "profiles": "RMF"
+  },
+  {
+    "name": "Recipe Browser",
+    "internalName": "RecipeBrowser",
+    "workshopId": "2619954303",
+    "profiles": "RMF"
+  },
+  {
+    "name": "Boss Checklist",
+    "internalName": "BossChecklist",
+    "workshopId": "2669644269",
+    "profiles": "RMF"
+  },
+  {
+    "name": "Census - Town NPC Checklist",
+    "internalName": "Census",
+    "workshopId": "2687866031",
+    "profiles": "RMF"
+  },
+  {
+    "name": "Basic Automated (Vein) Mining",
+    "internalName": "BAM",
+    "workshopId": "2838188064",
+    "profiles": "RMF"
+  },
+  {
+    "name": "Fargo's Mutant Mod",
+    "internalName": "Fargowiltas",
+    "workshopId": "2570931073",
+    "profiles": "RMF"
+  },
+  {
+    "name": "Auto Trash",
+    "internalName": "AutoTrash",
+    "workshopId": "2565540604",
+    "profiles": "RMF"
+  },
+  {
+    "name": "Which Mod Is This From?",
+    "internalName": "WMITF",
+    "workshopId": "2563851005",
+    "profiles": "RMF"
+  },
+  {
+    "name": "Shared World Map",
+    "internalName": "SharedMap",
+    "workshopId": "2815010161",
+    "profiles": "RMF"
+  },
+  {
+    "name": "Calamity's Vanities",
+    "internalName": "CalValEX",
+    "workshopId": "2824688804",
+    "profiles": "RM"
+  },
+  {
+    "name": "Boss Cursor",
+    "internalName": "BossCursor",
+    "workshopId": "2816694149",
+    "profiles": "RMF"
+  },
+  {
+    "name": "Loot Beams",
+    "internalName": "LootBeams",
+    "workshopId": "2847872897",
+    "profiles": "RMF"
+  },
+  {
+    "name": "Calamity Rarities",
+    "internalName": "CalamityRarities",
+    "workshopId": "2853817477",
+    "profiles": "RM"
+  },
+  {
+    "name": "Summoners' Association",
+    "internalName": "SummonersAssociation",
+    "workshopId": "2561619075",
+    "profiles": "RMF"
+  },
+  {
+    "name": "The Amulet Of Many Minions",
+    "internalName": "AmuletOfManyMinions",
+    "workshopId": "2565770836",
+    "profiles": "RMF"
+  },
+  {
+    "name": "Assorted Crazy Things",
+    "internalName": "AssortedCrazyThings",
+    "workshopId": "2795859323",
+    "profiles": "RMF"
+  },
+  {
+    "name": "Catalyst Mod",
+    "internalName": "CatalystMod",
+    "workshopId": "2838015851",
+    "profiles": "M"
+  },
+  {
+    "name": "Calamity: Hunt of the Old God",
+    "internalName": "CalamityHunt",
+    "workshopId": "3241967932",
+    "profiles": "M"
+  },
+  {
+    "name": "AlchemistNPC Lite",
+    "internalName": "AlchemistNPCLite",
+    "workshopId": "2599842771",
+    "profiles": "MF"
+  },
+  {
+    "name": "Angler Shop",
+    "internalName": "NoFishingQuests",
+    "workshopId": "2563082541",
+    "profiles": "MF"
+  },
+  {
+    "name": "Shorter Respawn Time",
+    "internalName": "ShorterRespawn",
+    "workshopId": "2562997415",
+    "profiles": "MF"
+  },
+  {
+    "name": "No More Tombs",
+    "internalName": "NoMoreTombs",
+    "workshopId": "2835407664",
+    "profiles": "MF"
+  }
+]
