@@ -17,6 +17,17 @@ namespace {
 enum class Style { Neon, Tech, Ruins, Nature };
 enum class Detail { Clean, Balanced, Rich };
 enum class Scope { Selected, WholeLevel };
+struct InkPalette { std::array<ccColor3B, 3> colors; };
+InkPalette inkPalette(Style s) {
+    switch(s) {
+        case Style::Neon: return {{{18,30,64},{35,205,250},{151,70,255}}};
+        case Style::Tech: return {{{45,64,83},{89,195,236},{255,193,79}}};
+        case Style::Ruins: return {{{102,68,62},{190,119,91},{238,189,121}}};
+        case Style::Nature: return {{{50,87,60},{110,190,92},{212,191,106}}};
+    }
+    return {{{70,70,70},{190,190,190},{255,255,255}}};
+}
+
 
 struct Cell {
     int x, y;
@@ -116,6 +127,7 @@ struct Piece {
     float angle = 0.f;
     ZLayer layer = ZLayer::T1;
     int zOrder = 0;
+    int ink = 0; // 0 structural, 1 trim, 2 highlight
 };
 constexpr size_t kMaxBlocks = 20000;
 constexpr size_t kMaxPieces = 24000;
@@ -129,6 +141,10 @@ class $modify(AutoDecorEditor, EditorUI) {
         Scope scope = Scope::WholeLevel;
         std::vector<std::vector<int>> history;
         std::vector<Piece> work;
+        std::array<std::array<int,3>,4> colorChannels{};
+        std::array<ccColor3B,3> activeRGB{};
+        std::array<int,3> activeColorIDs{};
+        size_t anchorCount=0;
         std::vector<int> liveIDs;
         size_t cursor = 0, created = 0, rejected = 0, inspected = 0, eligible = 0;
         bool busy = false;
@@ -207,49 +223,81 @@ class $modify(AutoDecorEditor, EditorUI) {
         }
         // Do not mutate the live array while reading it: object creation below
         // occurs only after selection/level contents have been snapshotted.
-        std::unordered_map<Cell, CCPoint, CellHash> cells;
-        cells.reserve(std::min<size_t>(input->count(), kMaxBlocks));
-        // GD grid centers can be offset (commonly 15 units), so use the
-        // first valid selected block as the lattice origin.
-        bool anchorSet = false;
-        float anchorX = 0.f, anchorY = 0.f;
-        size_t inspected = 0;
-        size_t filtered = 0;
-        for (unsigned i = 0; i < input->count(); ++i) {
-            if (cells.size() >= kMaxBlocks) break;
-            auto* o = static_cast<GameObject*>(input->objectAtIndex(i));
+        // Pass A: classify *all* existing level objects once. A full solid
+        // tile is different from slopes, portals and decorations: those
+        // receive only background supports, never opaque tile overlays.
+        struct Candidate { CCPoint pos; int id; };
+        struct Anchor { CCPoint pos; int type; };
+        std::vector<Candidate> terrain;
+        std::vector<Anchor> anchors;
+        terrain.reserve(std::min<size_t>(input->count(), kMaxBlocks));
+        anchors.reserve(std::min<size_t>(input->count(), kMaxBlocks));
+        std::array<size_t,900> lattice{};
+        size_t inspected = 0, filtered = 0, slopes = 0;
+        for (unsigned i=0; i<input->count() && inspected<100000; ++i) {
+            auto* o=static_cast<GameObject*>(input->objectAtIndex(i));
             ++inspected;
             if (!o) continue;
-            auto type = o->m_objectType;
-            const bool selectedScope = m_fields->scope == Scope::Selected;
-            const bool eligibleType = (type == GameObjectType::Solid ||
-                type == GameObjectType::Breakable ||
-                (selectedScope && type == GameObjectType::Decoration));
-            if (!eligibleType || o->m_isNoTouch) { ++filtered; continue; }
-            if (std::abs(o->getRotation()) > .1f ||
-                std::abs(o->getScaleX()-1.f) > .15f ||
-                std::abs(o->getScaleY()-1.f) > .15f) { ++filtered; continue; }
-            auto p = o->getPosition();
-            if (!std::isfinite(p.x) || !std::isfinite(p.y)) continue;
-            if (!anchorSet) {
-                anchorX = p.x;
-                anchorY = p.y;
-                anchorSet = true;
-            }
-            int x = int(std::lround((p.x-anchorX)/30.f));
-            int y = int(std::lround((p.y-anchorY)/30.f));
-            if (std::abs(p.x - (anchorX+30.f*x)) > 4.75f ||
-                std::abs(p.y - (anchorY+30.f*y)) > 4.75f) { ++filtered; continue; }
-            cells[{x,y}] = p;
+            auto pt=o->getPosition();
+            if (!std::isfinite(pt.x)||!std::isfinite(pt.y)) {++filtered;continue;}
+            // Existing non-block elements become background composition
+            // anchors; gameplay triggers remain untouched.
+            auto type=o->m_objectType;
+            bool terrainType=(type==GameObjectType::Solid || type==GameObjectType::Breakable);
+            bool isSlope=type==GameObjectType::Slope;
+            bool isGameplayAnchor=(isSlope || type==GameObjectType::Decoration ||
+                type==GameObjectType::Hazard || type==GameObjectType::AnimatedHazard ||
+                type==GameObjectType::Special);
+            // Skip decoration produced by older Auto Decor versions and this
+            // editor session (no-touch and drawn on visual T layers).
+            bool likelyGenerated=o->m_isNoTouch &&
+                (o->m_zLayer==ZLayer::T1 || o->m_zLayer==ZLayer::T2) &&
+                !terrainType && !isSlope;
+            if (likelyGenerated) { ++filtered;continue; }
+            if (terrainType &&
+                std::abs(o->getRotation())<=.1f &&
+                std::abs(o->getScaleX()-1.f)<=.15f &&
+                std::abs(o->getScaleY()-1.f)<=.15f &&
+                terrain.size()<kMaxBlocks) {
+                terrain.push_back({pt,o->m_objectID});
+                auto residue=[](float value)->int {
+                    int v=int(std::lround(std::fmod(value,30.f)));
+                    return (v%30+30)%30;
+                };
+                lattice[residue(pt.x)*30 + residue(pt.y)]++;
+            } else if ((isGameplayAnchor || terrainType) && anchors.size()<kMaxBlocks) {
+                if(isSlope)++slopes;
+                anchors.push_back({pt,int(type)});
+            } else ++filtered;
         }
-        if (cells.empty()) {
-            note("Scanned " + std::to_string(inspected) + " objects, accepted 0 blocks. " +
-                "Try TARGET: SELECTED on ordinary full blocks.");
+        // Choose the DOMINANT lattice, not the first encountered block.
+        // This fixes levels with 0/15/other offsets and off-grid decoration.
+        int dominant=0;
+        for(int i=1;i<900;++i)if(lattice[i]>lattice[dominant])dominant=i;
+        float ox=float(dominant/30),oy=float(dominant%30);
+        std::unordered_map<Cell,CCPoint,CellHash> cells;
+        cells.reserve(terrain.size());
+        for (auto const& candidate : terrain) {
+            auto pt=candidate.pos;
+            int x=int(std::lround((pt.x-ox)/30.f));
+            int y=int(std::lround((pt.y-oy)/30.f));
+            auto tolerance=4.75f;
+            if(std::abs(pt.x-(ox+x*30.f))>tolerance ||
+               std::abs(pt.y-(oy+y*30.f))>tolerance) {
+                // Secondary lattices are still represented as contextual
+                // background anchors, not discarded.
+                if(anchors.size()<kMaxBlocks) anchors.push_back({pt,0});
+                continue;
+            }
+            cells[{x,y}]=pt;
+        }
+        if(cells.empty() && anchors.empty()) {
+            note("No supported geometry found. Try selecting solid blocks and slopes.");
             return;
         }
-        m_fields->inspected = inspected;
-        m_fields->eligible = cells.size();
-
+        m_fields->inspected=inspected;
+        m_fields->eligible=cells.size();
+        m_fields->anchorCount=anchors.size();
         std::vector<Cell> ordered;
         ordered.reserve(cells.size());
         for (auto const& entry : cells) ordered.push_back(entry.first);
@@ -267,10 +315,10 @@ class $modify(AutoDecorEditor, EditorUI) {
         const float sparse = density == Detail::Clean ? 0.f :
                             density == Detail::Balanced ? .25f : .45f;
         std::vector<Piece> pieces;
-        pieces.reserve(std::min(kMaxPieces, cells.size()*3));
-        auto append = [&pieces](int id, CCPoint pos, float scale, float angle, ZLayer zlayer, int zorder) {
+        pieces.reserve(std::min(kMaxPieces, cells.size()*3 + anchors.size()));
+        auto append = [&pieces](int id, CCPoint pos, float scale, float angle, ZLayer zlayer, int zorder, int ink=0) {
             if (id > 0 && pieces.size() < kMaxPieces)
-                pieces.push_back({id,pos,scale,angle,zlayer,zorder});
+                pieces.push_back({id,pos,scale,angle,zlayer,zorder,ink});
         };
 
         // PASS 1 — cohesive base textures: every occupied block receives
@@ -279,7 +327,8 @@ class $modify(AutoDecorEditor, EditorUI) {
         for (auto c : ordered) {
             auto n = exposed(c);
             auto t = chooseTile(p,n,style);
-            append(t.id,cells.at(c),1.f,t.angle,ZLayer::T1,0);
+            // Opaque tile backgrounds go BEHIND original collision blocks.
+            append(t.id,cells.at(c),1.f,t.angle,ZLayer::B1,0,0);
         }
 
         // PASS 2 — controlled details with theme-specific visual language.
@@ -297,10 +346,10 @@ class $modify(AutoDecorEditor, EditorUI) {
                     int id = (n.exposed()==2 && (n.t || n.b)) ? 1192 : 1191;
                     auto base = chooseTile(p,n,style);
                     if (probability(c.x,c.y,19) < (density==Detail::Rich ? .82f : .59f))
-                        append(id,pos,.90f,base.angle,ZLayer::T2,1);
+                        append(id,pos,.90f,base.angle,ZLayer::T1,1,1);
                 }
                 if (interior && probability(c.x,c.y,18) < sparse*.55f)
-                    append(1195,pos,.55f,0,ZLayer::T2,3);
+                    append(1195,pos,.55f,0,ZLayer::T2,3,2);
             } else if (style == Style::Tech) {
                 // The conduit grid is consistent across adjacent cells:
                 // pipes meet at deliberate cross/turns, not random points.
@@ -326,35 +375,90 @@ class $modify(AutoDecorEditor, EditorUI) {
                         angle=N?0:E?90:S?180:270;
                     }
                     if (id && (density==Detail::Rich || (r % 5)!=0))
-                        append(id,pos,.73f,angle,ZLayer::T2,3);
+                        append(id,pos,.73f,angle,ZLayer::T1,3,1);
                 }
                 if (surface && probability(c.x,c.y,23) < sparse*.35f)
-                    append(1005,{pos.x,pos.y+7.f},.42f,0,ZLayer::T2,5);
+                    append(1005,{pos.x,pos.y+7.f},.42f,0,ZLayer::T2,5,2);
             } else if (style == Style::Ruins) {
                 // Masonry seams; alternate intact bricks and broken stone,
                 // preserving a visible consistent wall over multiple tiles.
                 bool mortar = (posmod(c.x + 2*posmod(c.y,2),4)==0);
                 if (interior && mortar && probability(c.x,c.y,34) < sparse*1.6f)
-                    append(277,pos,.67f,0,ZLayer::T2,2);
+                    append(277,pos,.67f,0,ZLayer::T1,2,1);
                 else if (n.exposed() > 0 && probability(c.x,c.y,35) < sparse*.7f)
-                    append(278,pos,.52f,float((r>>11)%4)*90,ZLayer::T2,3);
+                    append(278,pos,.52f,float((r>>11)%4)*90,ZLayer::T1,3,1);
                 if (interior && density==Detail::Rich && probability(c.x,c.y,36)<.07f)
-                    append(245,pos,.46f,0,ZLayer::T2,4);
+                    append(245,pos,.46f,0,ZLayer::T2,4,2);
             } else if (style == Style::Nature) {
                 // Vegetation grows only on sky-facing tops. Alternating
                 // placements produce clumps rather than a noisy grass carpet.
                 bool clump = posmod(c.x + (c.y/5),3)==0;
                 if (surface && clump && probability(c.x,c.y,41)<sparse*2.5f) {
                     int id = std::array<int,6>{406,407,408,940,941,942}[r%6];
-                    append(id,{pos.x,pos.y+9.f},.55f,0,ZLayer::T2,5);
+                    append(id,{pos.x,pos.y+9.f},.55f,0,ZLayer::T2,5,1);
                 }
                 if (interior && probability(c.x,c.y,42)<sparse*.65f)
-                    append(1048,pos,.54f,0,ZLayer::T2,2);
+                    append(1048,pos,.54f,0,ZLayer::T1,2,1);
                 if (surface && density==Detail::Rich &&
                     probability(c.x,c.y,43)<.035f)
-                    append(939,{pos.x,pos.y+9.f},.55f,0,ZLayer::T2,5);
+                    append(939,{pos.x,pos.y+9.f},.55f,0,ZLayer::T2,5,2);
             }
         }
+
+        // PASS 3 — contextual support for slopes, portals, hazards and other
+        // non-square geometry. The previous mod silently ignored all of these.
+        // Group into broad 120px columns to avoid repetitive clutter.
+        std::unordered_map<int,std::pair<CCPoint,int>> zones;
+        for(auto const& a:anchors) {
+            int key=int(std::floor(a.pos.x/120.f));
+            auto& zone=zones[key];
+            if(zone.second==0)zone.first=a.pos;
+            zone.second++;
+        }
+        std::vector<int> sortedZones;
+        for(auto const& pair:zones)sortedZones.push_back(pair.first);
+        std::sort(sortedZones.begin(),sortedZones.end());
+        int backdropID=style==Style::Neon?1168:style==Style::Tech?263:
+                       style==Style::Ruins?269:955;
+        int highlightID=style==Style::Neon?1195:style==Style::Tech?240:
+                        style==Style::Ruins?277:406;
+        for(int key:sortedZones) {
+            if(pieces.size()+2>=kMaxPieces)break;
+            auto const& zone=zones.at(key);
+            auto center=zone.first;
+            auto pulse=scramble(key,int(center.y/30.f),81);
+            // Place decorative supports 30px below interesting gameplay
+            // features, *behind* the action, without covering the hitboxes.
+            float y=center.y-30.f;
+            append(backdropID,{center.x,y},.62f,float(pulse%4)*90.f,ZLayer::B3,-2,0);
+            if(density==Detail::Rich || (density==Detail::Balanced && pulse%3==0)) {
+                append(highlightID,{center.x,y-16.f},.32f,float((pulse>>4)%4)*90.f,
+                       ZLayer::B2,-1,1);
+            }
+        }
+        // Configure THREE NEW PRIVATE COLOR CHANNELS per style. Unlike
+        // editor-only setColor these colors survive save/load of the level.
+        auto* manager=layer->m_effectManager;
+        auto styleIndex=static_cast<size_t>(style);
+        auto paletteRGB=inkPalette(style).colors;
+        auto& savedChannels=m_fields->colorChannels[styleIndex];
+        if(manager) {
+            for(int k=0;k<3;++k) {
+                if(savedChannels[k]==0) {
+                    int channel=layer->getNextColorChannel();
+                    if(channel>=1 && channel<=999) {
+                        auto* action=ColorAction::create(paletteRGB[k],false,0);
+                        if(action) {
+                            manager->setColorAction(action,channel);
+                            savedChannels[k]=channel;
+                        }
+                    }
+                }
+            }
+            manager->processColors();
+        }
+        m_fields->activeColorIDs=savedChannels;
+        m_fields->activeRGB=paletteRGB;
 
         // Place 85 objects per frame to prevent editor stalls on big levels.
         m_fields->work = std::move(pieces);
@@ -398,6 +502,16 @@ class $modify(AutoDecorEditor, EditorUI) {
             obj->m_zLayer = p.layer;
             obj->m_zOrder = p.zOrder;
             obj->m_isNoTouch = true;
+            // White overlay regression fix: explicitly assign each created
+            // piece to the theme's persisted GD color channels.
+            int primary=m_fields->activeColorIDs[std::clamp(p.ink,0,2)];
+            int secondary=m_fields->activeColorIDs[1];
+            if(primary>0) {
+                if(obj->m_baseColor) obj->m_baseColor->m_colorID=primary;
+                if(obj->m_detailColor && secondary>0) obj->m_detailColor->m_colorID=secondary;
+            }
+            obj->setObjectColor(m_fields->activeRGB[std::clamp(p.ink,0,2)]);
+            layer->manualUpdateObjectColors(obj);
             if (obj->m_uniqueID > 0) m_fields->liveIDs.push_back(obj->m_uniqueID);
             ++m_fields->created;
         }
@@ -408,6 +522,7 @@ class $modify(AutoDecorEditor, EditorUI) {
             auto blocks=m_fields->eligible;
             auto inspected=m_fields->inspected;
             auto theme=m_fields->activeStyle;
+            auto background=m_fields->anchorCount;
             m_fields->busy=false;
             m_fields->work.clear();
             if (!m_fields->liveIDs.empty()) {
@@ -418,7 +533,7 @@ class $modify(AutoDecorEditor, EditorUI) {
             m_fields->liveIDs.clear();
             note(std::string(name(theme)) + ": found " +
                 std::to_string(blocks) + " blocks / " + std::to_string(inspected) +
-                " objects, placed " + std::to_string(n) +
+                " objects + " + std::to_string(background) + " context anchors, placed " + std::to_string(n) +
                 ", skipped " + std::to_string(skipped) +
                 ". Playtest before saving.");
         }

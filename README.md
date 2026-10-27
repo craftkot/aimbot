@@ -1,17 +1,20 @@
-# Auto Decor 0.5.0 — fix for 5-block limit
+# Auto Decor 0.6.0 — Geometry Dash 2.2081, Windows
 
-**Geometry Dash 2.2081 / Geode 5.11.2 / Windows Steam**
+## Why it previously decorated only a handful of objects
+Auto Decor v0.5.0 classified only full, unrotated Solid/Breakable tiles on a lattice locked to the *first* source object. All the rest (slopes, hazards, special objects and off-grid geometry) were silently ignored. Auto-tiling also used opaque sprites without assigning the styles' color channels, producing generic white slabs.
 
-## What changed
-- **TARGET: ALL BLOCKS** (now default) processes all suitable full-size solid grid blocks across the level.
-- **TARGET: SELECTED** processes only a selection, including selected decorations.
-- Up to 20,000 source blocks and 24,000 generated pieces per run, with batch generation of 85 objects per frame.
-- No more hardcoded 700-selection cap. Clear diagnostic report: scanned objects, accepted blocks, placed pieces, rejected objects.
-- Keeps four styles (Neon, Tech, Ruins, Nature), clean/normal/rich detail modes, 10 undo batches.
+## Changes in 0.6
+- Dominant grid-origin detection for solid tiles; alternate-offset solids become scenery anchors instead of vanishing.
+- Gameplay anchors: slopes, decorative shapes, portals, hazards and special objects receive limited BACKGROUND supports instead of dangerous overlapping opaque tile overlays.
+- Three own RGB color channels per theme; assignments are written to the level using Geode's color effect manager.
+- Main tiles placed behind original solid blocks (B1), with accents in foreground; no gameplay object intentionally replaced.
+- Kept modes TARGET ALL / SELECTED and clean/normal/rich levels.
+- Improved debug report showing source blocks, context anchors, generated counts.
+- Generation 85 objects per frame to avoid large editor freezes.
 
-## Test
-Back up the level. Remove old craftkot.autodecor.geode. Install updated file into Geometry Dash/geode/mods.
-Open editor > AUTO DECO > TARGET: ALL BLOCKS > any style.
-Test on a simple level with 15-50 ordinary blocks. Read the resulting dialog for actual input and generated counts.
+NOTE: non-square shapes are only given limited supporting background decor; they are *not* fully auto-tiled. This is an experimental geometry-aware procedural tool, not a professional ML decorator.
 
-IMPORTANT: Modern Geometry Dash objects come from many object classes. The whole-level mode only modifies **ordinary 30px unrotated solid or breakable grid tiles** for safety; this is not a full AI art-generation system. Blocks outside the relevant scope or not aligned to a 30px lattice aren't processed. Large levels might need multiple passes. Do not use AUTO ALL on levels with existing decorations without backing up: overlaid tiles may obscure other objects.
+## TEST SAFELY
+Back up your level. Close Geometry Dash, replace `craftkot.autodecor.geode` inside `Geometry Dash/geode/mods`, reopen the editor, choose TARGET ALL, then NEON / NORMAL. Try a simple level with 15+ regular blocks, slopes and an orb/portal. Compare result with 0.5.0. The in-game rendering has NOT been verified automatically. Playtest and use Undo Deco if needed.
+
+Target: Steam GD 2.2081, Geode 5.11.2, Windows.

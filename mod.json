@@ -5,9 +5,9 @@
   },
   "id": "craftkot.autodecor",
   "name": "Auto Decor",
-  "version": "v0.5.0",
+  "version": "v0.6.0",
   "developer": "craftkot",
-  "description": "Fixes 5-block selection limitation; whole-level and selected scopes, chunked generation, diagnostics, 4 styles and 3 detail levels.",
+  "description": "Geometry-aware decoration of solid blocks and background accents for slopes, hazards, portals; auto color channels, 4 styles, whole-level mode.",
   "tags": [
     "editor",
     "utility",
