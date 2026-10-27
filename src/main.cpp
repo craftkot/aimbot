@@ -16,6 +16,7 @@ using namespace geode::prelude;
 namespace {
 enum class Style { Neon, Tech, Ruins, Nature };
 enum class Detail { Clean, Balanced, Rich };
+enum class Scope { Selected, WholeLevel };
 
 struct Cell {
     int x, y;
@@ -116,15 +117,22 @@ struct Piece {
     ZLayer layer = ZLayer::T1;
     int zOrder = 0;
 };
-constexpr size_t kMaxBlocks = 700;
-constexpr size_t kMaxPieces = 1750;
+constexpr size_t kMaxBlocks = 20000;
+constexpr size_t kMaxPieces = 24000;
+constexpr size_t kFrameBudget = 85;
 }
 
 class $modify(AutoDecorEditor, EditorUI) {
     struct Fields {
         CCMenu* panel = nullptr;
         Detail detail = Detail::Balanced;
+        Scope scope = Scope::WholeLevel;
         std::vector<std::vector<int>> history;
+        std::vector<Piece> work;
+        std::vector<int> liveIDs;
+        size_t cursor = 0, created = 0, rejected = 0, inspected = 0, eligible = 0;
+        bool busy = false;
+        Style activeStyle = Style::Neon;
     };
 
     CCMenuItemSpriteExtra* button(char const* label, SEL_MenuHandler cb, float scale=0.39f) {
@@ -147,6 +155,8 @@ class $modify(AutoDecorEditor, EditorUI) {
         panel->addChild(button("TECH", menu_selector(AutoDecorEditor::tech)));
         panel->addChild(button("RUINS", menu_selector(AutoDecorEditor::ruins)));
         panel->addChild(button("NATURE", menu_selector(AutoDecorEditor::nature)));
+        panel->addChild(button("TARGET: ALL BLOCKS", menu_selector(AutoDecorEditor::scopeAll), 0.28f));
+        panel->addChild(button("TARGET: SELECTED", menu_selector(AutoDecorEditor::scopeSelected), 0.28f));
         panel->addChild(button("DETAIL: CLEAN", menu_selector(AutoDecorEditor::clean), 0.32f));
         panel->addChild(button("DETAIL: NORMAL", menu_selector(AutoDecorEditor::normal), 0.32f));
         panel->addChild(button("DETAIL: RICH", menu_selector(AutoDecorEditor::rich), 0.32f));
@@ -168,35 +178,57 @@ class $modify(AutoDecorEditor, EditorUI) {
     void clean(CCObject*) { m_fields->detail = Detail::Clean; note("Detail set to CLEAN. Pick a theme."); }
     void normal(CCObject*) { m_fields->detail = Detail::Balanced; note("Detail set to NORMAL. Pick a theme."); }
     void rich(CCObject*) { m_fields->detail = Detail::Rich; note("Detail set to RICH. Pick a theme."); }
+    void scopeAll(CCObject*) {
+        m_fields->scope = Scope::WholeLevel;
+        note("Target: ALL solid blocks of the level. Select a theme.");
+    }
+    void scopeSelected(CCObject*) {
+        m_fields->scope = Scope::Selected;
+        note("Target: selected objects only. Select a theme.");
+    }
     void neon(CCObject*) { decorate(Style::Neon); }
     void tech(CCObject*) { decorate(Style::Tech); }
     void ruins(CCObject*) { decorate(Style::Ruins); }
     void nature(CCObject*) { decorate(Style::Nature); }
 
     void decorate(Style style) {
+        if (m_fields->busy) {
+            note("Decoration is still generating. Try again when finished.");
+            return;
+        }
         if (m_fields->panel) m_fields->panel->setVisible(false);
         auto* layer = this->m_editorLayer;
-        auto* selected = this->getSelectedObjects();
-        if (!layer || !selected || selected->count() == 0) {
-            note("First select full square blocks in the level editor.");
+        if (!layer) { note("Editor is not active."); return; }
+        auto* input = m_fields->scope == Scope::WholeLevel
+            ? layer->getAllObjects() : this->getSelectedObjects();
+        if (!input || input->count() == 0) {
+            note("No objects found. Add blocks or switch TARGET mode.");
             return;
         }
-        if (selected->count() > kMaxBlocks) {
-            note("Limit: select 700 blocks or fewer per batch.");
-            return;
-        }
+        // Do not mutate the live array while reading it: object creation below
+        // occurs only after selection/level contents have been snapshotted.
         std::unordered_map<Cell, CCPoint, CellHash> cells;
-        cells.reserve(selected->count());
+        cells.reserve(std::min<size_t>(input->count(), kMaxBlocks));
         // GD grid centers can be offset (commonly 15 units), so use the
         // first valid selected block as the lattice origin.
         bool anchorSet = false;
         float anchorX = 0.f, anchorY = 0.f;
-        for (unsigned i = 0; i < selected->count(); ++i) {
-            auto* o = static_cast<GameObject*>(selected->objectAtIndex(i));
-            if (!o || o->m_objectType != GameObjectType::Solid) continue;
+        size_t inspected = 0;
+        size_t filtered = 0;
+        for (unsigned i = 0; i < input->count(); ++i) {
+            if (cells.size() >= kMaxBlocks) break;
+            auto* o = static_cast<GameObject*>(input->objectAtIndex(i));
+            ++inspected;
+            if (!o) continue;
+            auto type = o->m_objectType;
+            const bool selectedScope = m_fields->scope == Scope::Selected;
+            const bool eligibleType = (type == GameObjectType::Solid ||
+                type == GameObjectType::Breakable ||
+                (selectedScope && type == GameObjectType::Decoration));
+            if (!eligibleType || o->m_isNoTouch) { ++filtered; continue; }
             if (std::abs(o->getRotation()) > .1f ||
-                std::abs(o->getScaleX()-1.f) > .04f ||
-                std::abs(o->getScaleY()-1.f) > .04f) continue;
+                std::abs(o->getScaleX()-1.f) > .15f ||
+                std::abs(o->getScaleY()-1.f) > .15f) { ++filtered; continue; }
             auto p = o->getPosition();
             if (!std::isfinite(p.x) || !std::isfinite(p.y)) continue;
             if (!anchorSet) {
@@ -206,14 +238,17 @@ class $modify(AutoDecorEditor, EditorUI) {
             }
             int x = int(std::lround((p.x-anchorX)/30.f));
             int y = int(std::lround((p.y-anchorY)/30.f));
-            if (std::abs(p.x - (anchorX+30.f*x)) > 2.1f ||
-                std::abs(p.y - (anchorY+30.f*y)) > 2.1f) continue;
+            if (std::abs(p.x - (anchorX+30.f*x)) > 4.75f ||
+                std::abs(p.y - (anchorY+30.f*y)) > 4.75f) { ++filtered; continue; }
             cells[{x,y}] = p;
         }
         if (cells.empty()) {
-            note("No grid-aligned, unrotated full blocks found in selection.");
+            note("Scanned " + std::to_string(inspected) + " objects, accepted 0 blocks. " +
+                "Try TARGET: SELECTED on ordinary full blocks.");
             return;
         }
+        m_fields->inspected = inspected;
+        m_fields->eligible = cells.size();
 
         std::vector<Cell> ordered;
         ordered.reserve(cells.size());
@@ -321,50 +356,92 @@ class $modify(AutoDecorEditor, EditorUI) {
             }
         }
 
-        std::vector<int> created;
-        created.reserve(pieces.size());
-        size_t added = 0, skipped = 0;
-        for (auto const& piece : pieces) {
-            auto* o = layer->createObject(piece.id,piece.pos,false);
-            if (!o) {++skipped;continue;}
-            if (o->m_objectType == GameObjectType::Hazard ||
-                o->m_objectType == GameObjectType::AnimatedHazard ||
-                o->m_objectType == GameObjectType::Modifier ||
-                o->m_objectType == GameObjectType::CollisionObject) {
-                layer->removeObject(o,false);
-                ++skipped;
+        // Place 85 objects per frame to prevent editor stalls on big levels.
+        m_fields->work = std::move(pieces);
+        m_fields->liveIDs.clear();
+        m_fields->liveIDs.reserve(m_fields->work.size());
+        m_fields->cursor = 0;
+        m_fields->created = 0;
+        m_fields->rejected = 0;
+        m_fields->activeStyle = style;
+        m_fields->busy = true;
+        this->schedule(schedule_selector(AutoDecorEditor::processWork));
+        geode::log::info("AutoDecor {}: scope={}, scanned={}, eligible={}, queued={}, filtered={}",
+            name(style), m_fields->scope == Scope::WholeLevel ? "ALL" : "SELECTED",
+            inspected, cells.size(), m_fields->work.size(), filtered);
+    }
+    void processWork(float) {
+        if (!m_fields->busy) return;
+        auto* layer = this->m_editorLayer;
+        if (!layer) {
+            this->unschedule(schedule_selector(AutoDecorEditor::processWork));
+            m_fields->busy = false;
+            m_fields->work.clear();
+            m_fields->liveIDs.clear();
+            return;
+        }
+        size_t end = std::min(m_fields->cursor + kFrameBudget, m_fields->work.size());
+        for (; m_fields->cursor < end; ++m_fields->cursor) {
+            auto const& p = m_fields->work[m_fields->cursor];
+            auto* obj = layer->createObject(p.id, p.pos, false);
+            if (!obj) { ++m_fields->rejected; continue; }
+            if (obj->m_objectType == GameObjectType::Hazard ||
+                obj->m_objectType == GameObjectType::AnimatedHazard ||
+                obj->m_objectType == GameObjectType::CollisionObject ||
+                obj->m_objectType == GameObjectType::Modifier) {
+                layer->removeObject(obj, false);
+                ++m_fields->rejected;
                 continue;
             }
-            o->setScale(piece.scale);
-            o->setRotation(piece.angle);
-            o->m_zLayer = piece.layer;
-            o->m_zOrder = piece.zOrder;
-            o->m_isNoTouch = true;
-            if (o->m_uniqueID > 0) created.push_back(o->m_uniqueID);
-            ++added;
+            obj->setScale(p.scale);
+            obj->setRotation(p.angle);
+            obj->m_zLayer = p.layer;
+            obj->m_zOrder = p.zOrder;
+            obj->m_isNoTouch = true;
+            if (obj->m_uniqueID > 0) m_fields->liveIDs.push_back(obj->m_uniqueID);
+            ++m_fields->created;
         }
-        if (!created.empty()) {
-            m_fields->history.push_back(std::move(created));
-            if (m_fields->history.size() > 8)
-                m_fields->history.erase(m_fields->history.begin());
-        }
-        if (added) {
-            note(std::string(name(style)) + " / " + densityName(density) +
-                ": generated " + std::to_string(added) + " objects (" +
-                std::to_string(skipped) + " skipped). Playtest before saving.");
-        } else {
-            note("No compatible decoration objects could be created.");
+        if (m_fields->cursor == m_fields->work.size()) {
+            this->unschedule(schedule_selector(AutoDecorEditor::processWork));
+            auto n=m_fields->created;
+            auto skipped=m_fields->rejected;
+            auto blocks=m_fields->eligible;
+            auto inspected=m_fields->inspected;
+            auto theme=m_fields->activeStyle;
+            m_fields->busy=false;
+            m_fields->work.clear();
+            if (!m_fields->liveIDs.empty()) {
+                m_fields->history.push_back(std::move(m_fields->liveIDs));
+                if (m_fields->history.size() > 10)
+                    m_fields->history.erase(m_fields->history.begin());
+            }
+            m_fields->liveIDs.clear();
+            note(std::string(name(theme)) + ": found " +
+                std::to_string(blocks) + " blocks / " + std::to_string(inspected) +
+                " objects, placed " + std::to_string(n) +
+                ", skipped " + std::to_string(skipped) +
+                ". Playtest before saving.");
         }
     }
     void revert(CCObject*) {
         if (m_fields->panel) m_fields->panel->setVisible(false);
         auto* layer = this->m_editorLayer;
-        if (!layer || m_fields->history.empty()) {
-            note("No recent Auto Decor batch to undo.");
-            return;
+        if (!layer) return;
+        std::vector<int> batch;
+        if (m_fields->busy) {
+            this->unschedule(schedule_selector(AutoDecorEditor::processWork));
+            m_fields->busy = false;
+            m_fields->work.clear();
+            batch = std::move(m_fields->liveIDs);
+            m_fields->liveIDs.clear();
+        } else {
+            if (m_fields->history.empty()) {
+                note("No recent Auto Decor batch to undo.");
+                return;
+            }
+            batch = std::move(m_fields->history.back());
+            m_fields->history.pop_back();
         }
-        auto batch = std::move(m_fields->history.back());
-        m_fields->history.pop_back();
         size_t deleted=0;
         for (int uniqueID : batch) {
             if (auto* obj = layer->findGameObject(uniqueID)) {
