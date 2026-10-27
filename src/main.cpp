@@ -31,22 +31,25 @@ uint32_t hash(int x, int y, int salt) {
     return n;
 }
 float random01(int x, int y, int seed) { return (hash(x, y, seed) % 10000) / 10000.f; }
+// Curated non-gameplay object IDs (source: Geometry Dash object catalog).
+// Do NOT filter createWithKey previews by m_objectType: many decorative objects
+// are classified as Solid/Special before EditorLayer initialization.
 std::vector<int> candidateIDs(Style style, bool edge) {
     switch (style) {
-        case Style::Neon: return edge ? std::vector<int>{227,228,236,279,280} : std::vector<int>{279,280,281,282};
-        case Style::Tech: return edge ? std::vector<int>{237,238,239,240,241} : std::vector<int>{231,232,283,284,285};
-        case Style::Ruins: return edge ? std::vector<int>{233,234,235,245,246} : std::vector<int>{277,278,279};
-        case Style::Nature: return edge ? std::vector<int>{222,223,224,406,407} : std::vector<int>{461,462,463,464,224};
+        case Style::Neon:
+            return edge ? std::vector<int>{503,504,505,227,228,242}
+                        : std::vector<int>{236,405,495,496,497,503};
+        case Style::Tech:
+            return edge ? std::vector<int>{237,238,239,240,241,229,230}
+                        : std::vector<int>{231,232,283,284,285,500,501};
+        case Style::Ruins:
+            return edge ? std::vector<int>{233,234,235,245,246}
+                        : std::vector<int>{277,278,233,245};
+        case Style::Nature:
+            return edge ? std::vector<int>{406,407,408,414}
+                        : std::vector<int>{222,223,224,406,407,408};
     }
     return {};
-}
-std::vector<int> safeIDs(std::vector<int> const& ids) {
-    std::vector<int> result;
-    for (auto id : ids) {
-        auto* obj = GameObject::createWithKey(id);
-        if (obj && obj->m_objectType == GameObjectType::Decoration) result.push_back(id);
-    }
-    return result;
 }
 struct Piece { int id; CCPoint pos; float scale; float rotation; };
 }
@@ -122,10 +125,10 @@ class $modify(AutoDecorEditor, EditorUI) {
             note("No regular, unrotated full blocks in selection.");
             return;
         }
-        auto edges = safeIDs(candidateIDs(style, true));
-        auto details = safeIDs(candidateIDs(style, false));
+        auto edges = candidateIDs(style, true);
+        auto details = candidateIDs(style, false);
         if (edges.empty() && details.empty()) {
-            note("This style has no supported decoration IDs on this GD version. No changes made.");
+            note("Internal style error: empty object palette.");
             return;
         }
         std::vector<Cell> ordered;
@@ -165,6 +168,12 @@ class $modify(AutoDecorEditor, EditorUI) {
         for (auto const& p : pieces) {
             auto* o = layer->createObject(p.id, p.pos, false);
             if (!o) continue;
+            // Keep only non-lethal objects. Defense in depth if an ID is reassigned.
+            if (o->m_objectType == GameObjectType::Hazard ||
+                o->m_objectType == GameObjectType::AnimatedHazard) {
+                layer->removeObject(o, false);
+                continue;
+            }
             o->setScale(p.scale);
             o->setRotation(p.rotation);
             o->m_zLayer = ZLayer::B2;
@@ -173,7 +182,7 @@ class $modify(AutoDecorEditor, EditorUI) {
             ++count;
         }
         m_fields->lastIDs = std::move(ids);
-        note("Placed " + std::to_string(count) + " decorations. Test your level before saving.");
+        note(count ? ("Placed " + std::to_string(count) + " decorations. Test before saving.") : "No objects could be created; please report this style.");
     }
     void revert(CCObject*) {
         if (m_fields->panel) m_fields->panel->setVisible(false);
