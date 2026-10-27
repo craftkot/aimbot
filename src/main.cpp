@@ -20,12 +20,12 @@ enum class Scope { Selected, WholeLevel };
 struct InkPalette { std::array<ccColor3B, 3> colors; };
 InkPalette inkPalette(Style s) {
     switch(s) {
-        case Style::Neon: return {{{18,30,64},{35,205,250},{151,70,255}}};
-        case Style::Tech: return {{{45,64,83},{89,195,236},{255,193,79}}};
-        case Style::Ruins: return {{{102,68,62},{190,119,91},{238,189,121}}};
-        case Style::Nature: return {{{50,87,60},{110,190,92},{212,191,106}}};
+        case Style::Neon: return InkPalette{std::array<ccColor3B,3>{ccColor3B{18,30,64},ccColor3B{35,205,250},ccColor3B{151,70,255}}};
+        case Style::Tech: return InkPalette{std::array<ccColor3B,3>{ccColor3B{45,64,83},ccColor3B{89,195,236},ccColor3B{255,193,79}}};
+        case Style::Ruins: return InkPalette{std::array<ccColor3B,3>{ccColor3B{102,68,62},ccColor3B{190,119,91},ccColor3B{238,189,121}}};
+        case Style::Nature: return InkPalette{std::array<ccColor3B,3>{ccColor3B{50,87,60},ccColor3B{110,190,92},ccColor3B{212,191,106}}};
     }
-    return {{{70,70,70},{190,190,190},{255,255,255}}};
+    return InkPalette{std::array<ccColor3B,3>{ccColor3B{70,70,70},ccColor3B{190,190,190},ccColor3B{255,255,255}}};
 }
 
 
