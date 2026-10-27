@@ -106,8 +106,8 @@ class $modify(AutoDecorEditor, EditorUI) {
             note("Select some regular square blocks first.");
             return;
         }
-        if (selected->count() > 700) {
-            note("Select 700 objects or fewer.");
+        if (selected->count() > 750) {
+            note("Select 750 objects or fewer.");
             return;
         }
         std::unordered_map<Cell, CCPoint, CellHash> cells;
@@ -125,38 +125,83 @@ class $modify(AutoDecorEditor, EditorUI) {
             note("No regular, unrotated full blocks in selection.");
             return;
         }
-        auto edges = candidateIDs(style, true);
-        auto details = candidateIDs(style, false);
-        if (edges.empty() && details.empty()) {
-            note("Internal style error: empty object palette.");
-            return;
-        }
         std::vector<Cell> ordered;
         for (auto const& [cell, pos] : cells) ordered.push_back(cell);
         std::sort(ordered.begin(), ordered.end(), [](Cell const& a, Cell const& b) {
             return a.x == b.x ? a.y < b.y : a.x < b.x;
         });
+        // Everything is based on actual occupied grid positions. Never scatter
+        // unrelated objects outside the shape: geometry first, accents second.
         std::vector<Piece> pieces;
+        pieces.reserve(std::min<size_t>(ordered.size() * 2, 1100));
         const auto occupied = [&cells](Cell c) { return cells.contains(c); };
-        for (auto cell : ordered) {
-            if (pieces.size() >= 220) break;
-            auto p = cells.at(cell);
-            bool top = !occupied({cell.x,cell.y+1});
-            bool bottom = !occupied({cell.x,cell.y-1});
-            bool left = !occupied({cell.x-1,cell.y});
-            bool right = !occupied({cell.x+1,cell.y});
-            auto rnd = hash(cell.x, cell.y, 11);
-            if ((top||bottom||left||right) && !edges.empty() && random01(cell.x,cell.y,6) < .75f) {
-                float dx = 0, dy = 0, angle = 0;
-                if (top) dy = 9;
-                else if (bottom) { dy = -9; angle = 180; }
-                else if (left) { dx = -9; angle = 90; }
-                else if (right) { dx = 9; angle = -90; }
-                pieces.push_back({edges[rnd % edges.size()], {p.x+dx,p.y+dy}, .48f, angle});
+        if (style == Style::Neon) {
+            // Geometry Dash 2.2 object IDs (the 1162..1186 auto-tiling family).
+            // Top = 1162, outer corner = 1163, center = 1166,
+            // side = 1167, pillar = 1165/1174, isolated = 1170.
+            // Corner/side art is rotated to match the actual exposed edges.
+            for (auto cell : ordered) {
+                if (pieces.size() >= 1000) break;
+                auto p = cells.at(cell);
+                bool t = !occupied({cell.x, cell.y+1});
+                bool b = !occupied({cell.x, cell.y-1});
+                bool l = !occupied({cell.x-1, cell.y});
+                bool r = !occupied({cell.x+1, cell.y});
+                const int sides = int(t) + int(b) + int(l) + int(r);
+                int id = 1166;
+                float rotation = 0;
+                if (sides == 4) {
+                    id = 1170; // isolated block
+                } else if (sides == 0) {
+                    id = 1186; // inner square
+                } else if (sides == 1) {
+                    if (t) { id = 1162; rotation = 0; }
+                    else if (r) { id = 1162; rotation = 90; }
+                    else if (b) { id = 1162; rotation = 180; }
+                    else { id = 1162; rotation = 270; }
+                } else if (sides == 2 && ((t && b) || (l && r))) {
+                    if (t && b) { id = 1174; rotation = 0; }
+                    else { id = 1165; rotation = 0; }
+                } else if (sides == 2) {
+                    id = 1163; // top-left corner is the original orientation
+                    if (t && l) rotation = 0;
+                    else if (t && r) rotation = 90;
+                    else if (b && r) rotation = 180;
+                    else rotation = 270;
+                } else {
+                    id = 1170; // safe fallback for thin endpoints and T junctions
+                }
+                pieces.push_back({id, p, 1.f, rotation});
+                // Limited core detailing only for cells not directly exposed
+                // to the playfield. Repeating every cell creates ugly clutter.
+                auto h = hash(cell.x, cell.y, 197);
+                if (sides == 0 && (h % 7) == 0 && pieces.size() < 1000) {
+                    pieces.push_back({1764, p, .75f, 0}); // subtle dot
+                } else if (sides == 0 && (h % 13) == 0 && pieces.size() < 1000) {
+                    pieces.push_back({1753, p, .70f, float(h % 4) * 90.f}); // small line
+                }
             }
-            if (pieces.size() < 220 && !details.empty() && random01(cell.x,cell.y,12) < .22f) {
-                pieces.push_back({details[(rnd>>7) % details.size()],
-                    {p.x+static_cast<float>((rnd>>12)%9)-4, p.y}, .28f, float((rnd>>22)%4)*90});
+        } else {
+            // Secondary styles keep the existing sparse detailing logic.
+            // Objects are never positioned outside the selected blocks.
+            auto edges = candidateIDs(style, true);
+            auto details = candidateIDs(style, false);
+            for (auto cell : ordered) {
+                if (pieces.size() >= 480) break;
+                auto p = cells.at(cell);
+                bool top = !occupied({cell.x,cell.y+1});
+                bool bottom = !occupied({cell.x,cell.y-1});
+                bool left = !occupied({cell.x-1,cell.y});
+                bool right = !occupied({cell.x+1,cell.y});
+                auto rnd = hash(cell.x, cell.y, 11);
+                if ((top||bottom||left||right) && !edges.empty()) {
+                    float angle = top ? 0 : (right ? 90 : (bottom ? 180 : 270));
+                    pieces.push_back({edges[rnd % edges.size()], p, .65f, angle});
+                }
+                if (!top && !bottom && !left && !right && !details.empty() &&
+                    random01(cell.x,cell.y,12) < .24f && pieces.size() < 480) {
+                    pieces.push_back({details[(rnd>>7) % details.size()], p, .38f, 0.f});
+                }
             }
         }
         if (pieces.empty()) {
@@ -176,13 +221,14 @@ class $modify(AutoDecorEditor, EditorUI) {
             }
             o->setScale(p.scale);
             o->setRotation(p.rotation);
-            o->m_zLayer = ZLayer::B2;
+            o->m_zLayer = ZLayer::B1;
+            o->m_zOrder = 12;
             o->m_isNoTouch = true;
             if (o->m_uniqueID > 0) ids.push_back(o->m_uniqueID);
             ++count;
         }
         m_fields->lastIDs = std::move(ids);
-        note(count ? ("Placed " + std::to_string(count) + " decorations. Test before saving.") : "No objects could be created; please report this style.");
+        note(count ? ("Built " + std::to_string(count) + " connected detail tiles. Run playtest before saving.") : "No tiles were created; please report this style.");
     }
     void revert(CCObject*) {
         if (m_fields->panel) m_fields->panel->setVisible(false);
