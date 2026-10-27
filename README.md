@@ -1,9 +1,9 @@
 # Auto Decor 0.2 for GD 2.208 Windows
 
-*Experimental* Geode editor mod. Select up to 700 normal, unrotated 30x30 solid blocks, choose **AUTO DECO** in editor (NEON / TECH / RUINS / NATURE). Generates at most 220 decorative objects in B2, without adding gameplay hazards. **REVERT** attempts to remove the last generated batch. Native editor undo remains available.
+Experimental Geode editor mod. In the editor, select normal full blocks, click AUTO DECO and select NEON, TECH, RUINS or NATURE. Generates up to 220 decorative objects, tries not to add gameplay hazards. REVERT removes last batch by object ID where possible.
 
-This is a procedural decorator, not trained AI. Back up the level first.
+Keep a backup of your level before testing. This is a procedural generator, not a neural network.
 
-Install compiled craftkot.autodecor.geode into Geometry Dash/geode/mods. Geode version must support your GD 2.208. If your Steam GD has updated to 2.2081, the mod target needs to be rebuilt for 2.2081.
+The build workflow targets Geometry Dash 2.208 on Windows. Required Geode loader support is unverified for the exact patch.
 
-Source code in src/main.cpp; build via Windows GitHub Actions.
+Source: src/main.cpp. Workflow: .github/workflows/build-auto-decor.yml.
