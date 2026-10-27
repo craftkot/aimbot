@@ -15,72 +15,143 @@ using namespace geode::prelude;
 
 namespace {
 enum class Style { Neon, Tech, Ruins, Nature };
-struct Cell { int x, y; bool operator==(Cell const& other) const { return x == other.x && y == other.y; } };
+enum class Detail { Clean, Balanced, Rich };
+
+struct Cell {
+    int x, y;
+    bool operator==(Cell const& other) const { return x == other.x && y == other.y; }
+};
 struct CellHash {
     size_t operator()(Cell const& c) const noexcept {
-        return (static_cast<uint64_t>(static_cast<uint32_t>(c.x)) << 32) ^
-               static_cast<uint32_t>(c.y);
+        return (static_cast<uint64_t>(static_cast<uint32_t>(c.x)) << 32)
+              ^ static_cast<uint32_t>(c.y);
     }
 };
-uint32_t hash(int x, int y, int salt) {
-    uint32_t n = 2166136261u;
-    for (uint32_t v : {static_cast<uint32_t>(x), static_cast<uint32_t>(y), static_cast<uint32_t>(salt)}) {
-        n = (n ^ v) * 16777619u;
+
+uint32_t scramble(int x, int y, int salt) {
+    uint32_t h = 0x811c9dc5u;
+    for (auto n : {x, y, salt}) {
+        h ^= static_cast<uint32_t>(n);
+        h *= 0x01000193u;
     }
-    n ^= n >> 16; n *= 0x7feb352du; n ^= n >> 15;
-    return n;
+    h ^= h >> 16; h *= 0x7feb352du;
+    h ^= h >> 15; h *= 0x846ca68bu; h ^= h >> 16;
+    return h;
 }
-float random01(int x, int y, int seed) { return (hash(x, y, seed) % 10000) / 10000.f; }
-// Curated non-gameplay object IDs (source: Geometry Dash object catalog).
-// Do NOT filter createWithKey previews by m_objectType: many decorative objects
-// are classified as Solid/Special before EditorLayer initialization.
-std::vector<int> candidateIDs(Style style, bool edge) {
-    switch (style) {
-        case Style::Neon:
-            return edge ? std::vector<int>{503,504,505,227,228,242}
-                        : std::vector<int>{236,405,495,496,497,503};
-        case Style::Tech:
-            return edge ? std::vector<int>{237,238,239,240,241,229,230}
-                        : std::vector<int>{231,232,283,284,285,500,501};
-        case Style::Ruins:
-            return edge ? std::vector<int>{233,234,235,245,246}
-                        : std::vector<int>{277,278,233,245};
-        case Style::Nature:
-            return edge ? std::vector<int>{406,407,408,414}
-                        : std::vector<int>{222,223,224,406,407,408};
+float probability(int x, int y, int salt) {
+    return (scramble(x, y, salt) % 10000) / 10000.f;
+}
+int count(bool a, bool b, bool c, bool d) {
+    return int(a)+int(b)+int(c)+int(d);
+}
+int posmod(int n, int d) { return (n % d + d) % d; }
+
+// Every ID below is a catalogued Geometry Dash editor object:
+// Neon 1162..1196, Mechanic 263..268, Brick 269..278, Grass 952..959.
+// Object families are internally consistent instead of random decor sprites.
+struct Palette {
+    int face, top, outer, inner, square, pillar, pillarTop, horizontal, left;
+};
+Palette palette(Style s) {
+    switch (s) {
+        case Style::Neon: return {1166,1162,1163,1168,1170,1165,1164,1174,1167};
+        case Style::Tech: return {263,264,265,266,263,268,267,268,264};
+        case Style::Ruins:return {269,270,271,272,269,275,274,275,270};
+        case Style::Nature:return {955,952,953,954,959,957,956,957,952};
     }
-    return {};
+    return {1166,1162,1163,1168,1170,1165,1164,1174,1167};
 }
-struct Piece { int id; CCPoint pos; float scale; float rotation; };
+char const* name(Style s) {
+    switch (s) {
+        case Style::Neon: return "NEON";
+        case Style::Tech: return "TECH";
+        case Style::Ruins: return "RUINS";
+        case Style::Nature: return "NATURE";
+    }
+    return "DECOR";
+}
+char const* densityName(Detail d) {
+    return d == Detail::Clean ? "CLEAN" : d == Detail::Balanced ? "NORMAL" : "RICH";
+}
+struct Neighborhood {
+    bool t, r, b, l; // exposed boundaries (no block on that side)
+    bool tl, tr, br, bl; // absent diagonal blocks
+    int exposed() const { return count(t,r,b,l); }
+};
+struct Tile {
+    int id;
+    float angle;
+};
+Tile chooseTile(Palette p, Neighborhood n, Style s) {
+    int k = n.exposed();
+    if (k >= 3) return {p.square, 0};
+    if (k == 2) {
+        if (n.t && n.b) return {p.pillar, 0}; // vertical ribbon
+        if (n.r && n.l)
+            return {p.horizontal, s == Style::Neon ? 0.f : 90.f};
+        if (n.t && n.l) return {p.outer, 0};
+        if (n.t && n.r) return {p.outer, 90};
+        if (n.b && n.r) return {p.outer, 180};
+        return {p.outer, 270};
+    }
+    if (k == 1) {
+        if (n.t) return {p.top, 0};
+        if (n.r) return {p.top, 90};
+        if (n.b) return {p.top, 180};
+        return {p.left, s == Style::Neon ? 0.f : 270.f};
+    }
+    // If all adjacent blocks exist but diagonal is absent, this is an
+    // interior notch; use a real inside corner instead of a central fill.
+    if (n.tl) return {p.inner, 0};
+    if (n.tr) return {p.inner, 90};
+    if (n.br) return {p.inner, 180};
+    if (n.bl) return {p.inner, 270};
+    return {p.face, 0};
+}
+struct Piece {
+    int id;
+    CCPoint pos;
+    float scale = 1.f;
+    float angle = 0.f;
+    ZLayer layer = ZLayer::T1;
+    int zOrder = 0;
+};
+constexpr size_t kMaxBlocks = 700;
+constexpr size_t kMaxPieces = 1750;
 }
 
 class $modify(AutoDecorEditor, EditorUI) {
     struct Fields {
         CCMenu* panel = nullptr;
-        std::vector<int> lastIDs;
+        Detail detail = Detail::Balanced;
+        std::vector<std::vector<int>> history;
     };
 
-    CCMenuItemSpriteExtra* makeButton(char const* name, SEL_MenuHandler cb, float scale=0.42f) {
-        auto* label = CCLabelBMFont::create(name, "goldFont.fnt");
-        label->setScale(scale);
-        return CCMenuItemSpriteExtra::create(label, this, cb);
+    CCMenuItemSpriteExtra* button(char const* label, SEL_MenuHandler cb, float scale=0.39f) {
+        auto* text = CCLabelBMFont::create(label, "goldFont.fnt");
+        text->setScale(scale);
+        return CCMenuItemSpriteExtra::create(text, this, cb);
     }
     bool init(LevelEditorLayer* layer) {
         if (!EditorUI::init(layer)) return false;
-        auto win = CCDirector::sharedDirector()->getWinSize();
-        auto* open = CCMenu::create();
-        open->setPosition({65.f, win.height - 54.f});
-        open->addChild(makeButton("AUTO DECO", menu_selector(AutoDecorEditor::togglePanel), 0.40f));
-        open->setID("auto-decor-trigger");
-        this->addChild(open, 500);
+        auto size = CCDirector::sharedDirector()->getWinSize();
+        auto* opener = CCMenu::create();
+        opener->setPosition({70.f, size.height - 50.f});
+        opener->addChild(button("AUTO DECO", menu_selector(AutoDecorEditor::togglePanel)));
+        opener->setID("auto-decor-trigger");
+        this->addChild(opener, 500);
+
         auto* panel = CCMenu::create();
-        panel->setPosition({80.f, win.height - 115.f});
-        panel->addChild(makeButton("NEON", menu_selector(AutoDecorEditor::neon)));
-        panel->addChild(makeButton("TECH", menu_selector(AutoDecorEditor::tech)));
-        panel->addChild(makeButton("RUINS", menu_selector(AutoDecorEditor::ruins)));
-        panel->addChild(makeButton("NATURE", menu_selector(AutoDecorEditor::nature)));
-        panel->addChild(makeButton("REVERT", menu_selector(AutoDecorEditor::revert), 0.34f));
-        panel->alignItemsVerticallyWithPadding(6.f);
+        panel->setPosition({90.f, size.height - 130.f});
+        panel->addChild(button("NEON", menu_selector(AutoDecorEditor::neon)));
+        panel->addChild(button("TECH", menu_selector(AutoDecorEditor::tech)));
+        panel->addChild(button("RUINS", menu_selector(AutoDecorEditor::ruins)));
+        panel->addChild(button("NATURE", menu_selector(AutoDecorEditor::nature)));
+        panel->addChild(button("DETAIL: CLEAN", menu_selector(AutoDecorEditor::clean), 0.32f));
+        panel->addChild(button("DETAIL: NORMAL", menu_selector(AutoDecorEditor::normal), 0.32f));
+        panel->addChild(button("DETAIL: RICH", menu_selector(AutoDecorEditor::rich), 0.32f));
+        panel->addChild(button("UNDO DECO", menu_selector(AutoDecorEditor::revert), 0.33f));
+        panel->alignItemsVerticallyWithPadding(5.f);
         panel->setVisible(false);
         panel->setID("auto-decor-style-panel");
         this->addChild(panel, 501);
@@ -91,160 +162,207 @@ class $modify(AutoDecorEditor, EditorUI) {
         FLAlertLayer::create("Auto Decor", message.c_str(), "OK")->show();
     }
     void togglePanel(CCObject*) {
-        auto* panel = m_fields->panel;
-        if (panel) panel->setVisible(!panel->isVisible());
+        auto* p = m_fields->panel;
+        if (p) p->setVisible(!p->isVisible());
     }
+    void clean(CCObject*) { m_fields->detail = Detail::Clean; note("Detail set to CLEAN. Pick a theme."); }
+    void normal(CCObject*) { m_fields->detail = Detail::Balanced; note("Detail set to NORMAL. Pick a theme."); }
+    void rich(CCObject*) { m_fields->detail = Detail::Rich; note("Detail set to RICH. Pick a theme."); }
     void neon(CCObject*) { decorate(Style::Neon); }
     void tech(CCObject*) { decorate(Style::Tech); }
     void ruins(CCObject*) { decorate(Style::Ruins); }
     void nature(CCObject*) { decorate(Style::Nature); }
+
     void decorate(Style style) {
         if (m_fields->panel) m_fields->panel->setVisible(false);
         auto* layer = this->m_editorLayer;
-        auto* selected = getSelectedObjects();
+        auto* selected = this->getSelectedObjects();
         if (!layer || !selected || selected->count() == 0) {
-            note("Select some regular square blocks first.");
+            note("First select full square blocks in the level editor.");
             return;
         }
-        if (selected->count() > 750) {
-            note("Select 750 objects or fewer.");
+        if (selected->count() > kMaxBlocks) {
+            note("Limit: select 700 blocks or fewer per batch.");
             return;
         }
         std::unordered_map<Cell, CCPoint, CellHash> cells;
+        cells.reserve(selected->count());
         for (unsigned i = 0; i < selected->count(); ++i) {
-            auto* obj = static_cast<GameObject*>(selected->objectAtIndex(i));
-            if (!obj || obj->m_objectType != GameObjectType::Solid) continue;
-            if (std::abs(obj->getRotation()) > .1f || std::abs(obj->getScaleX() - 1.f) > .04f ||
-                std::abs(obj->getScaleY() - 1.f) > .04f) continue;
-            auto p = obj->getPosition();
+            auto* o = static_cast<GameObject*>(selected->objectAtIndex(i));
+            if (!o || o->m_objectType != GameObjectType::Solid) continue;
+            if (std::abs(o->getRotation()) > .1f ||
+                std::abs(o->getScaleX()-1.f) > .04f ||
+                std::abs(o->getScaleY()-1.f) > .04f) continue;
+            auto p = o->getPosition();
             if (!std::isfinite(p.x) || !std::isfinite(p.y)) continue;
-            Cell key{static_cast<int>(std::lround(p.x/30.f)), static_cast<int>(std::lround(p.y/30.f))};
-            cells[key] = p;
+            int x = int(std::lround(p.x/30.f));
+            int y = int(std::lround(p.y/30.f));
+            if (std::abs(p.x - 30.f*x) > 2.1f ||
+                std::abs(p.y - 30.f*y) > 2.1f) continue;
+            cells[{x,y}] = p;
         }
         if (cells.empty()) {
-            note("No regular, unrotated full blocks in selection.");
+            note("No grid-aligned, unrotated full blocks found in selection.");
             return;
         }
+
         std::vector<Cell> ordered;
-        for (auto const& [cell, pos] : cells) ordered.push_back(cell);
-        std::sort(ordered.begin(), ordered.end(), [](Cell const& a, Cell const& b) {
+        ordered.reserve(cells.size());
+        for (auto const& entry : cells) ordered.push_back(entry.first);
+        std::sort(ordered.begin(), ordered.end(), [](Cell a, Cell b) {
             return a.x == b.x ? a.y < b.y : a.x < b.x;
         });
-        // Everything is based on actual occupied grid positions. Never scatter
-        // unrelated objects outside the shape: geometry first, accents second.
+        auto has = [&cells](int x, int y) { return cells.contains({x,y}); };
+        auto exposed = [&has](Cell c) -> Neighborhood {
+            return {!has(c.x,c.y+1), !has(c.x+1,c.y), !has(c.x,c.y-1),
+                    !has(c.x-1,c.y), !has(c.x-1,c.y+1), !has(c.x+1,c.y+1),
+                    !has(c.x+1,c.y-1), !has(c.x-1,c.y-1)};
+        };
+        auto p = palette(style);
+        auto density = m_fields->detail;
+        const float sparse = density == Detail::Clean ? 0.f :
+                            density == Detail::Balanced ? .25f : .45f;
         std::vector<Piece> pieces;
-        pieces.reserve(std::min<size_t>(ordered.size() * 2, 1100));
-        const auto occupied = [&cells](Cell c) { return cells.contains(c); };
-        if (style == Style::Neon) {
-            // Geometry Dash 2.2 object IDs (the 1162..1186 auto-tiling family).
-            // Top = 1162, outer corner = 1163, center = 1166,
-            // side = 1167, pillar = 1165/1174, isolated = 1170.
-            // Corner/side art is rotated to match the actual exposed edges.
-            for (auto cell : ordered) {
-                if (pieces.size() >= 1000) break;
-                auto p = cells.at(cell);
-                bool t = !occupied({cell.x, cell.y+1});
-                bool b = !occupied({cell.x, cell.y-1});
-                bool l = !occupied({cell.x-1, cell.y});
-                bool r = !occupied({cell.x+1, cell.y});
-                const int sides = int(t) + int(b) + int(l) + int(r);
-                int id = 1166;
-                float rotation = 0;
-                if (sides == 4) {
-                    id = 1170; // isolated block
-                } else if (sides == 0) {
-                    id = 1186; // inner square
-                } else if (sides == 1) {
-                    if (t) { id = 1162; rotation = 0; }
-                    else if (r) { id = 1162; rotation = 90; }
-                    else if (b) { id = 1162; rotation = 180; }
-                    else { id = 1162; rotation = 270; }
-                } else if (sides == 2 && ((t && b) || (l && r))) {
-                    if (t && b) { id = 1174; rotation = 0; }
-                    else { id = 1165; rotation = 0; }
-                } else if (sides == 2) {
-                    id = 1163; // top-left corner is the original orientation
-                    if (t && l) rotation = 0;
-                    else if (t && r) rotation = 90;
-                    else if (b && r) rotation = 180;
-                    else rotation = 270;
-                } else {
-                    id = 1170; // safe fallback for thin endpoints and T junctions
+        pieces.reserve(std::min(kMaxPieces, cells.size()*3));
+        auto append = [&pieces](int id, CCPoint pos, float scale, float angle, ZLayer zlayer, int zorder) {
+            if (id > 0 && pieces.size() < kMaxPieces)
+                pieces.push_back({id,pos,scale,angle,zlayer,zorder});
+        };
+
+        // PASS 1 — cohesive base textures: every occupied block receives
+        // a tile determined by the 8-neighbor layout (edge, corner, notch,
+        // pillar, isolated, interior). The underlying gameplay stays intact.
+        for (auto c : ordered) {
+            auto n = exposed(c);
+            auto t = chooseTile(p,n,style);
+            append(t.id,cells.at(c),1.f,t.angle,ZLayer::T1,0);
+        }
+
+        // PASS 2 — controlled details with theme-specific visual language.
+        // No art is scattered through open gameplay space.
+        for (auto c : ordered) {
+            if (pieces.size() >= kMaxPieces) break;
+            auto n = exposed(c);
+            auto pos = cells.at(c);
+            auto r = scramble(c.x,c.y,117);
+            bool surface = n.t;
+            bool interior = n.exposed() == 0;
+            if (style == Style::Neon) {
+                // Second outline layer adds readable continuous silhouette.
+                if (density != Detail::Clean && n.exposed() > 0) {
+                    int id = (n.exposed()==2 && (n.t || n.b)) ? 1192 : 1191;
+                    auto base = chooseTile(p,n,style);
+                    if (probability(c.x,c.y,19) < (density==Detail::Rich ? .82f : .59f))
+                        append(id,pos,.90f,base.angle,ZLayer::T2,1);
                 }
-                pieces.push_back({id, p, 1.f, rotation});
-                // Limited core detailing only for cells not directly exposed
-                // to the playfield. Repeating every cell creates ugly clutter.
-                auto h = hash(cell.x, cell.y, 197);
-                if (sides == 0 && (h % 7) == 0 && pieces.size() < 1000) {
-                    pieces.push_back({1764, p, .75f, 0}); // subtle dot
-                } else if (sides == 0 && (h % 13) == 0 && pieces.size() < 1000) {
-                    pieces.push_back({1753, p, .70f, float(h % 4) * 90.f}); // small line
+                if (interior && probability(c.x,c.y,18) < sparse*.55f)
+                    append(1195,pos,.55f,0,ZLayer::T2,3);
+            } else if (style == Style::Tech) {
+                // The conduit grid is consistent across adjacent cells:
+                // pipes meet at deliberate cross/turns, not random points.
+                auto conduit = [&has](int x,int y) -> bool {
+                    return has(x,y) && (posmod(x,4)==0 || posmod(y,4)==0);
+                };
+                if (density != Detail::Clean && interior && conduit(c.x,c.y)) {
+                    bool N=conduit(c.x,c.y+1), E=conduit(c.x+1,c.y);
+                    bool S=conduit(c.x,c.y-1), W=conduit(c.x-1,c.y);
+                    int degree = count(N,E,S,W);
+                    int id=0; float angle=0;
+                    if (degree==4) id=240;
+                    else if (degree==3) {id=239; angle=!N?180:!E?270:!S?0:90;}
+                    else if (degree==2 && ((N&&S)||(E&&W))) {
+                        id=237; angle=(E&&W)?90:0;
+                    }
+                    else if (degree==2) {
+                        id=238;
+                        angle=(N&&W)?0:(N&&E)?90:(S&&E)?180:270;
+                    }
+                    else if (degree==1) {
+                        id=241;
+                        angle=N?0:E?90:S?180:270;
+                    }
+                    if (id && (density==Detail::Rich || (r % 5)!=0))
+                        append(id,pos,.73f,angle,ZLayer::T2,3);
                 }
-            }
-        } else {
-            // Secondary styles keep the existing sparse detailing logic.
-            // Objects are never positioned outside the selected blocks.
-            auto edges = candidateIDs(style, true);
-            auto details = candidateIDs(style, false);
-            for (auto cell : ordered) {
-                if (pieces.size() >= 480) break;
-                auto p = cells.at(cell);
-                bool top = !occupied({cell.x,cell.y+1});
-                bool bottom = !occupied({cell.x,cell.y-1});
-                bool left = !occupied({cell.x-1,cell.y});
-                bool right = !occupied({cell.x+1,cell.y});
-                auto rnd = hash(cell.x, cell.y, 11);
-                if ((top||bottom||left||right) && !edges.empty()) {
-                    float angle = top ? 0 : (right ? 90 : (bottom ? 180 : 270));
-                    pieces.push_back({edges[rnd % edges.size()], p, .65f, angle});
+                if (surface && probability(c.x,c.y,23) < sparse*.35f)
+                    append(1005,{pos.x,pos.y+7.f},.42f,0,ZLayer::T2,5);
+            } else if (style == Style::Ruins) {
+                // Masonry seams; alternate intact bricks and broken stone,
+                // preserving a visible consistent wall over multiple tiles.
+                bool mortar = (posmod(c.x + 2*posmod(c.y,2),4)==0);
+                if (interior && mortar && probability(c.x,c.y,34) < sparse*1.6f)
+                    append(277,pos,.67f,0,ZLayer::T2,2);
+                else if (n.exposed() > 0 && probability(c.x,c.y,35) < sparse*.7f)
+                    append(278,pos,.52f,float((r>>11)%4)*90,ZLayer::T2,3);
+                if (interior && density==Detail::Rich && probability(c.x,c.y,36)<.07f)
+                    append(245,pos,.46f,0,ZLayer::T2,4);
+            } else if (style == Style::Nature) {
+                // Vegetation grows only on sky-facing tops. Alternating
+                // placements produce clumps rather than a noisy grass carpet.
+                bool clump = posmod(c.x + (c.y/5),3)==0;
+                if (surface && clump && probability(c.x,c.y,41)<sparse*2.5f) {
+                    int id = std::array<int,6>{406,407,408,940,941,942}[r%6];
+                    append(id,{pos.x,pos.y+9.f},.55f,0,ZLayer::T2,5);
                 }
-                if (!top && !bottom && !left && !right && !details.empty() &&
-                    random01(cell.x,cell.y,12) < .24f && pieces.size() < 480) {
-                    pieces.push_back({details[(rnd>>7) % details.size()], p, .38f, 0.f});
-                }
+                if (interior && probability(c.x,c.y,42)<sparse*.65f)
+                    append(1048,pos,.54f,0,ZLayer::T2,2);
+                if (surface && density==Detail::Rich &&
+                    probability(c.x,c.y,43)<.035f)
+                    append(939,{pos.x,pos.y+9.f},.55f,0,ZLayer::T2,5);
             }
         }
-        if (pieces.empty()) {
-            note("No decorations generated. Try a larger selection.");
-            return;
-        }
-        std::vector<int> ids;
-        size_t count = 0;
-        for (auto const& p : pieces) {
-            auto* o = layer->createObject(p.id, p.pos, false);
-            if (!o) continue;
-            // Keep only non-lethal objects. Defense in depth if an ID is reassigned.
+
+        std::vector<int> created;
+        created.reserve(pieces.size());
+        size_t added = 0, skipped = 0;
+        for (auto const& piece : pieces) {
+            auto* o = layer->createObject(piece.id,piece.pos,false);
+            if (!o) {++skipped;continue;}
             if (o->m_objectType == GameObjectType::Hazard ||
-                o->m_objectType == GameObjectType::AnimatedHazard) {
-                layer->removeObject(o, false);
+                o->m_objectType == GameObjectType::AnimatedHazard ||
+                o->m_objectType == GameObjectType::Modifier ||
+                o->m_objectType == GameObjectType::CollisionObject) {
+                layer->removeObject(o,false);
+                ++skipped;
                 continue;
             }
-            o->setScale(p.scale);
-            o->setRotation(p.rotation);
-            o->m_zLayer = ZLayer::B1;
-            o->m_zOrder = 12;
+            o->setScale(piece.scale);
+            o->setRotation(piece.angle);
+            o->m_zLayer = piece.layer;
+            o->m_zOrder = piece.zOrder;
             o->m_isNoTouch = true;
-            if (o->m_uniqueID > 0) ids.push_back(o->m_uniqueID);
-            ++count;
+            if (o->m_uniqueID > 0) created.push_back(o->m_uniqueID);
+            ++added;
         }
-        m_fields->lastIDs = std::move(ids);
-        note(count ? ("Built " + std::to_string(count) + " connected detail tiles. Run playtest before saving.") : "No tiles were created; please report this style.");
+        if (!created.empty()) {
+            m_fields->history.push_back(std::move(created));
+            if (m_fields->history.size() > 8)
+                m_fields->history.erase(m_fields->history.begin());
+        }
+        if (added) {
+            note(std::string(name(style)) + " / " + densityName(density) +
+                ": generated " + std::to_string(added) + " objects (" +
+                std::to_string(skipped) + " skipped). Playtest before saving.");
+        } else {
+            note("No compatible decoration objects could be created.");
+        }
     }
     void revert(CCObject*) {
         if (m_fields->panel) m_fields->panel->setVisible(false);
         auto* layer = this->m_editorLayer;
-        if (!layer || m_fields->lastIDs.empty()) {
-            note("Nothing to revert; use native Undo if needed.");
+        if (!layer || m_fields->history.empty()) {
+            note("No recent Auto Decor batch to undo.");
             return;
         }
-        size_t n = 0;
-        for (auto uid : m_fields->lastIDs) {
-            if (auto* o = layer->findGameObject(uid)) {
-                layer->removeObject(o, false);
-                ++n;
+        auto batch = std::move(m_fields->history.back());
+        m_fields->history.pop_back();
+        size_t deleted=0;
+        for (int uniqueID : batch) {
+            if (auto* obj = layer->findGameObject(uniqueID)) {
+                layer->removeObject(obj,false);
+                ++deleted;
             }
         }
-        m_fields->lastIDs.clear();
-        note("Removed " + std::to_string(n) + " decoration objects.");
+        note("Removed " + std::to_string(deleted) + " objects from last batch.");
     }
 };
