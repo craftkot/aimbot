@@ -5,9 +5,9 @@
   },
   "id": "craftkot.autodecor",
   "name": "Auto Decor",
-  "version": "v0.2.1",
+  "version": "v0.2.2",
   "developer": "craftkot",
-  "description": "Procedural decoration for selected full blocks: Neon, Tech, Ruins, Nature. Geode Windows GD 2.2081.",
+  "description": "Fixes falsely rejected decoration IDs. Four procedural styles for selected regular blocks (Windows GD 2.2081).",
   "tags": [
     "editor",
     "utility",
