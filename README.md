@@ -1,9 +1,7 @@
-# Auto Decor 0.2 for GD 2.208 Windows
+# Auto Decor 0.2.1 for Geometry Dash 2.2081 (Steam, Windows)
 
-Experimental Geode editor mod. In the editor, select normal full blocks, click AUTO DECO and select NEON, TECH, RUINS or NATURE. Generates up to 220 decorative objects, tries not to add gameplay hazards. REVERT removes last batch by object ID where possible.
+This Geode mod automatically decorates selected regular full blocks in the level editor. Click AUTO DECO and select Neon, Tech, Ruins or Nature. A selection of up to 700 blocks creates up to 220 decorative objects. REVERT tries to remove the previous batch. Back up your level before testing.
 
-Keep a backup of your level before testing. This is a procedural generator, not a neural network.
+Important: the official Geode SDK v5.11.2 targets Geometry Dash 2.2081, not 2.208. A mod compiled for 2.2081 is not guaranteed to load in 2.208. Update Geometry Dash through Steam if your executable still shows 2.208.
 
-The build workflow targets Geometry Dash 2.208 on Windows. Required Geode loader support is unverified for the exact patch.
-
-Source: src/main.cpp. Workflow: .github/workflows/build-auto-decor.yml.
+This is deterministic procedural decoration, not an ML-generated high-quality level designer. The src/main.cpp source is available in this isolated development branch.
