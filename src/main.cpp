@@ -18,16 +18,43 @@ enum class Style { Neon, Tech, Ruins, Nature };
 enum class Detail { Clean, Balanced, Rich };
 enum class Scope { Selected, WholeLevel };
 struct InkPalette { std::array<ccColor3B, 3> colors; };
-InkPalette inkPalette(Style s) {
+InkPalette inkPalette(Style s, int variant) {
+    auto make=[](ccColor3B a, ccColor3B b, ccColor3B c) -> InkPalette {
+        return InkPalette{std::array<ccColor3B,3>{a,b,c}};
+    };
+    variant=((variant%4)+4)%4;
     switch(s) {
-        case Style::Neon: return InkPalette{std::array<ccColor3B,3>{ccColor3B{18,30,64},ccColor3B{35,205,250},ccColor3B{151,70,255}}};
-        case Style::Tech: return InkPalette{std::array<ccColor3B,3>{ccColor3B{45,64,83},ccColor3B{89,195,236},ccColor3B{255,193,79}}};
-        case Style::Ruins: return InkPalette{std::array<ccColor3B,3>{ccColor3B{102,68,62},ccColor3B{190,119,91},ccColor3B{238,189,121}}};
-        case Style::Nature: return InkPalette{std::array<ccColor3B,3>{ccColor3B{50,87,60},ccColor3B{110,190,92},ccColor3B{212,191,106}}};
+      case Style::Neon:
+        switch(variant) {
+          case 0: return make({17,28,46},{49,216,239},{170,77,255}); // cyan/purple
+          case 1: return make({38,17,39},{255,78,194},{255,203,74}); // hot pink/gold
+          case 2: return make({11,43,46},{64,254,161},{99,164,255}); // mint/blue
+          default:return make({47,23,31},{255,118,77},{253,74,114}); // coral/red
+        }
+      case Style::Tech:
+        switch(variant) {
+          case 0: return make({37,56,72},{102,194,231},{255,194,91});
+          case 1: return make({34,47,55},{97,241,193},{246,136,82});
+          case 2: return make({37,33,59},{149,172,255},{248,88,214});
+          default:return make({50,47,40},{239,190,95},{171,207,217});
+        }
+      case Style::Ruins:
+        switch(variant) {
+          case 0: return make({71,52,50},{189,112,85},{249,188,113});
+          case 1: return make({55,51,63},{168,153,199},{230,204,151});
+          case 2: return make({51,63,56},{140,172,123},{217,177,112});
+          default:return make({76,48,47},{207,112,106},{248,202,153});
+        }
+      case Style::Nature:
+        switch(variant) {
+          case 0: return make({29,65,51},{97,188,101},{235,201,96});
+          case 1: return make({42,55,73},{124,206,196},{185,154,234});
+          case 2: return make({71,64,45},{187,169,87},{255,210,148});
+          default:return make({46,57,65},{118,161,203},{221,164,123});
+        }
     }
-    return InkPalette{std::array<ccColor3B,3>{ccColor3B{70,70,70},ccColor3B{190,190,190},ccColor3B{255,255,255}}};
+    return make({32,32,32},{200,200,200},{255,255,255});
 }
-
 
 struct Cell {
     int x, y;
@@ -131,7 +158,7 @@ struct Piece {
 };
 constexpr size_t kMaxBlocks = 20000;
 constexpr size_t kMaxPieces = 24000;
-constexpr size_t kFrameBudget = 85;
+constexpr size_t kFrameBudget = 18;
 }
 
 class $modify(AutoDecorEditor, EditorUI) {
@@ -141,7 +168,8 @@ class $modify(AutoDecorEditor, EditorUI) {
         Scope scope = Scope::WholeLevel;
         std::vector<std::vector<int>> history;
         std::vector<Piece> work;
-        std::array<std::array<int,3>,4> colorChannels{};
+        int paletteShift = 0;
+        CCLabelBMFont* progressLabel = nullptr;
         std::array<ccColor3B,3> activeRGB{};
         std::array<int,3> activeColorIDs{};
         size_t anchorCount=0;
@@ -164,6 +192,12 @@ class $modify(AutoDecorEditor, EditorUI) {
         opener->addChild(button("AUTO DECO", menu_selector(AutoDecorEditor::togglePanel)));
         opener->setID("auto-decor-trigger");
         this->addChild(opener, 500);
+        auto* progress = CCLabelBMFont::create("AUTO DECOR: 0%", "goldFont.fnt");
+        progress->setScale(.32f);
+        progress->setPosition({size.width - 105.f, size.height - 27.f});
+        progress->setVisible(false);
+        this->addChild(progress, 600);
+        m_fields->progressLabel = progress;
 
         auto* panel = CCMenu::create();
         panel->setPosition({90.f, size.height - 130.f});
@@ -176,6 +210,7 @@ class $modify(AutoDecorEditor, EditorUI) {
         panel->addChild(button("DETAIL: CLEAN", menu_selector(AutoDecorEditor::clean), 0.32f));
         panel->addChild(button("DETAIL: NORMAL", menu_selector(AutoDecorEditor::normal), 0.32f));
         panel->addChild(button("DETAIL: RICH", menu_selector(AutoDecorEditor::rich), 0.32f));
+        panel->addChild(button("NEW COLORS", menu_selector(AutoDecorEditor::nextColors), 0.34f));
         panel->addChild(button("UNDO DECO", menu_selector(AutoDecorEditor::revert), 0.33f));
         panel->alignItemsVerticallyWithPadding(5.f);
         panel->setVisible(false);
@@ -201,6 +236,10 @@ class $modify(AutoDecorEditor, EditorUI) {
     void scopeSelected(CCObject*) {
         m_fields->scope = Scope::Selected;
         note("Target: selected objects only. Select a theme.");
+    }
+    void nextColors(CCObject*) {
+        m_fields->paletteShift = (m_fields->paletteShift + 1) % 4;
+        note("New color harmony selected. Generate with a theme.");
     }
     void neon(CCObject*) { decorate(Style::Neon); }
     void tech(CCObject*) { decorate(Style::Tech); }
@@ -321,145 +360,212 @@ class $modify(AutoDecorEditor, EditorUI) {
                 pieces.push_back({id,pos,scale,angle,zlayer,zorder,ink});
         };
 
-        // PASS 1 — cohesive base textures: every occupied block receives
-        // a tile determined by the 8-neighbor layout (edge, corner, notch,
-        // pillar, isolated, interior). The underlying gameplay stays intact.
-        for (auto c : ordered) {
-            auto n = exposed(c);
-            auto t = chooseTile(p,n,style);
-            // Opaque tile backgrounds go BEHIND original collision blocks.
-            append(t.id,cells.at(c),1.f,t.angle,ZLayer::B1,0,0);
+        // Art director: motifs are planned at 6x4 and 9x6 scales.
+        // One tile per block is not enough: controlled edge strokes, depth,
+        // focal ornaments, micro-details and negative space form a hierarchy.
+        const float detailFactor = density == Detail::Clean ? .50f :
+                                   density == Detail::Balanced ? 1.f : 1.65f;
+        int maxX = ordered.empty()?0:ordered.front().x;
+        int minX = maxX, maxY = ordered.empty()?0:ordered.front().y, minY=maxY;
+        for(auto c:ordered) {
+            minX=std::min(minX,c.x);maxX=std::max(maxX,c.x);
+            minY=std::min(minY,c.y);maxY=std::max(maxY,c.y);
         }
+        int variant = int(scramble(minX,maxY,int(style))%4);
+        variant=(variant+m_fields->paletteShift)%4;
 
-        // PASS 2 — controlled details with theme-specific visual language.
-        // No art is scattered through open gameplay space.
-        for (auto c : ordered) {
-            if (pieces.size() >= kMaxPieces) break;
-            auto n = exposed(c);
-            auto pos = cells.at(c);
-            auto r = scramble(c.x,c.y,117);
-            bool surface = n.t;
-            bool interior = n.exposed() == 0;
-            if (style == Style::Neon) {
-                // Second outline layer adds readable continuous silhouette.
-                if (density != Detail::Clean && n.exposed() > 0) {
-                    int id = (n.exposed()==2 && (n.t || n.b)) ? 1192 : 1191;
-                    auto base = chooseTile(p,n,style);
-                    if (probability(c.x,c.y,19) < (density==Detail::Rich ? .82f : .59f))
-                        append(id,pos,.90f,base.angle,ZLayer::T1,1,1);
-                }
-                if (interior && probability(c.x,c.y,18) < sparse*.55f)
-                    append(1195,pos,.55f,0,ZLayer::T2,3,2);
-            } else if (style == Style::Tech) {
-                // The conduit grid is consistent across adjacent cells:
-                // pipes meet at deliberate cross/turns, not random points.
-                auto conduit = [&has](int x,int y) -> bool {
-                    return has(x,y) && (posmod(x,4)==0 || posmod(y,4)==0);
-                };
-                if (density != Detail::Clean && interior && conduit(c.x,c.y)) {
-                    bool N=conduit(c.x,c.y+1), E=conduit(c.x+1,c.y);
-                    bool S=conduit(c.x,c.y-1), W=conduit(c.x-1,c.y);
-                    int degree = count(N,E,S,W);
-                    int id=0; float angle=0;
-                    if (degree==4) id=240;
-                    else if (degree==3) {id=239; angle=!N?180:!E?270:!S?0:90;}
-                    else if (degree==2 && ((N&&S)||(E&&W))) {
-                        id=237; angle=(E&&W)?90:0;
+        // A 6x4 "artboard" uses the same palette and motif rhythm,
+        // but adjacent artboards can carry different ornament types.
+        auto section=[](Cell c) -> Cell {
+            return {int(std::floor(float(c.x)/6.f)),
+                    int(std::floor(float(c.y)/4.f))};
+        };
+        auto add=[&](int id, CCPoint pt, float scale, float ang,
+                      ZLayer depth, int order, int ink){
+            append(id,pt,scale,ang,depth,order,ink);
+        };
+        int groundDetail=0;
+        for(auto c:ordered) {
+            if(pieces.size()+10>=kMaxPieces)break;
+            auto n=exposed(c);
+            auto pt=cells.at(c);
+            int edges=n.exposed();
+            auto zone=section(c);
+            uint32_t zoneSeed=scramble(zone.x,zone.y,int(style)*97);
+            uint32_t h=scramble(c.x,c.y,int(style)*43+7);
+            const bool focal=(posmod(c.x-zone.x*6,6)==2 &&
+                              posmod(c.y-zone.y*4,4)==1);
+            // FOUNDATION: selective transparent/decorative material only.
+            // Never add a new collision-bearing solid block.
+            if(edges==0 && (h%3)!=0) {
+                int material = style==Style::Neon ? 279 :
+                               style==Style::Tech ? 281 :
+                               style==Style::Ruins ? 277 : 1048;
+                float scl = style==Style::Neon ? .78f : .85f;
+                add(material,pt,scl,float((h>>9)%4)*90.f,ZLayer::B2,-3,0);
+                groundDetail++;
+            }
+
+            // EDGE LAYER: all exposed edges get a continuous material contour.
+            // The two strokes are geometrically aligned and differently tinted.
+            auto stroke = [&](float dx,float dy,float angle) {
+                if(style==Style::Neon) {
+                    add(504,{pt.x+dx,pt.y+dy},.72f,angle,ZLayer::B1,-1,0);
+                    add(1292,{pt.x+dx,pt.y+dy},.64f,angle,ZLayer::T1,2,1);
+                    if(detailFactor>=1.f && (h%4)!=0)
+                        add(1292,{pt.x+dx*.78f,pt.y+dy*.78f},
+                            .36f,angle,ZLayer::T2,3,2);
+                } else if(style==Style::Tech) {
+                    add(237,{pt.x+dx*.67f,pt.y+dy*.67f},.48f,angle,ZLayer::T1,2,1);
+                    if((h&3)==0) add(231,{pt.x+dx*.42f,pt.y+dy*.42f},
+                                    .32f,angle,ZLayer::T2,4,2);
+                } else if(style==Style::Ruins) {
+                    add(235,{pt.x+dx*.50f,pt.y+dy*.50f},
+                        .55f,angle,ZLayer::T1,1,1);
+                    if((h&3)==1) add(278,{pt.x+dx*.32f,pt.y+dy*.32f},
+                                    .34f,angle,ZLayer::T2,2,2);
+                } else {
+                    // only exposed terrain receives vegetation
+                    if(angle==0) {
+                        int grass=std::array<int,4>{406,407,408,940}[h%4];
+                        add(grass,{pt.x,pt.y+11.f},.70f,0,ZLayer::T2,3,1);
+                        if(detailFactor>1.f && (h%5)==0)
+                            add(939,{pt.x+6.f,pt.y+13.f},.45f,0,ZLayer::T2,5,2);
+                    } else if((h%4)==0) {
+                        add(1048,{pt.x+dx*.45f,pt.y+dy*.45f},.55f,angle,
+                            ZLayer::T1,1,1);
                     }
-                    else if (degree==2) {
-                        id=238;
-                        angle=(N&&W)?0:(N&&E)?90:(S&&E)?180:270;
-                    }
-                    else if (degree==1) {
-                        id=241;
-                        angle=N?0:E?90:S?180:270;
-                    }
-                    if (id && (density==Detail::Rich || (r % 5)!=0))
-                        append(id,pos,.73f,angle,ZLayer::T1,3,1);
                 }
-                if (surface && probability(c.x,c.y,23) < sparse*.35f)
-                    append(1005,{pos.x,pos.y+7.f},.42f,0,ZLayer::T2,5,2);
-            } else if (style == Style::Ruins) {
-                // Masonry seams; alternate intact bricks and broken stone,
-                // preserving a visible consistent wall over multiple tiles.
-                bool mortar = (posmod(c.x + 2*posmod(c.y,2),4)==0);
-                if (interior && mortar && probability(c.x,c.y,34) < sparse*1.6f)
-                    append(277,pos,.67f,0,ZLayer::T1,2,1);
-                else if (n.exposed() > 0 && probability(c.x,c.y,35) < sparse*.7f)
-                    append(278,pos,.52f,float((r>>11)%4)*90,ZLayer::T1,3,1);
-                if (interior && density==Detail::Rich && probability(c.x,c.y,36)<.07f)
-                    append(245,pos,.46f,0,ZLayer::T2,4,2);
-            } else if (style == Style::Nature) {
-                // Vegetation grows only on sky-facing tops. Alternating
-                // placements produce clumps rather than a noisy grass carpet.
-                bool clump = posmod(c.x + (c.y/5),3)==0;
-                if (surface && clump && probability(c.x,c.y,41)<sparse*2.5f) {
-                    int id = std::array<int,6>{406,407,408,940,941,942}[r%6];
-                    append(id,{pos.x,pos.y+9.f},.55f,0,ZLayer::T2,5,1);
+            };
+            if(n.t)stroke(0,12,0);
+            if(n.r)stroke(12,0,90);
+            if(n.b)stroke(0,-12,180);
+            if(n.l)stroke(-12,0,270);
+
+            // THEME STRUCTURE: patterned details, not identical repeats.
+            // Playable surfaces stay legible; detail density concentrates
+            // inside masses and in selected architectural highlights.
+            if(edges==0 && detailFactor>=1.f) {
+                if(style==Style::Neon) {
+                    if((posmod(c.x+2*c.y,5)==0)&&(h%5<3))
+                        add(1004,pt,.48f,0,ZLayer::T1,3,1);
+                    if((h%11)==0)
+                        add(1887,{pt.x+5.f,pt.y-6.f},.42f,0,ZLayer::T2,5,2);
+                } else if(style==Style::Tech) {
+                    if((posmod(c.x,4)==0 || posmod(c.y,4)==0) && h%3!=0)
+                        add(1004,pt,.48f,float((h>>3)%4)*90.f,ZLayer::T1,2,1);
+                    if((h%13)==0)
+                        add(87,pt,.30f,0,ZLayer::T2,5,2);
+                } else if(style==Style::Ruins) {
+                    if(posmod(c.x+2*c.y,3)==0)
+                        add(277,pt,.54f,float(h%2)*180,ZLayer::T1,2,1);
+                    if((h%13)==0)
+                        add(245,{pt.x+4.f,pt.y-3.f},.45f,0,ZLayer::T2,3,0);
+                } else {
+                    if((h%5)<2)
+                        add(1048,pt,.58f,0,ZLayer::T1,2,1);
                 }
-                if (interior && probability(c.x,c.y,42)<sparse*.65f)
-                    append(1048,pos,.54f,0,ZLayer::T1,2,1);
-                if (surface && density==Detail::Rich &&
-                    probability(c.x,c.y,43)<.035f)
-                    append(939,{pos.x,pos.y+9.f},.55f,0,ZLayer::T2,5,2);
+            }
+
+            // FOCAL POINT: a coherent architectural jewel at approximately
+            // every 6x4 cells. It gets several nested layers and a halo.
+            // Focals only occur if neighboring blocks provide visual support.
+            if(focal && edges<=1 && detailFactor>=.50f) {
+                bool supported=has(c.x-1,c.y)&&has(c.x+1,c.y);
+                if(supported) {
+                    if(style==Style::Neon) {
+                        add(1888,pt,1.30f,0,ZLayer::B1,-2,0);
+                        add(236,pt,.48f,0,ZLayer::T1,7,1);
+                        add(1887,pt,.27f,0,ZLayer::T2,8,2);
+                        if(detailFactor>=1.f) {
+                            add(232,{pt.x-16.f,pt.y},.34f,0,ZLayer::T2,8,1);
+                            add(232,{pt.x+16.f,pt.y},.34f,180,ZLayer::T2,8,1);
+                        }
+                    } else if(style==Style::Tech) {
+                        add(284,pt,.73f,0,ZLayer::B1,-2,0);
+                        add(86,pt,.46f,0,ZLayer::T1,6,1);
+                        add(1887,pt,.26f,0,ZLayer::T2,7,2);
+                        if(detailFactor>=1.f) {
+                            add(231,{pt.x-15.f,pt.y},.36f,0,ZLayer::T2,7,1);
+                            add(231,{pt.x+15.f,pt.y},.36f,180,ZLayer::T2,7,1);
+                        }
+                    } else if(style==Style::Ruins) {
+                        add(113,pt,.63f,0,ZLayer::B1,-2,0);
+                        add(114,pt,.55f,0,ZLayer::T1,5,1);
+                        if((zoneSeed%3)==0)
+                            add(1887,pt,.45f,0,ZLayer::T2,6,2);
+                    } else {
+                        add(222,pt,.67f,0,ZLayer::B2,-2,0);
+                        add(223,pt,.45f,0,ZLayer::B1,-1,1);
+                        if((zoneSeed%3)==0)
+                            add(1887,{pt.x+4.f,pt.y+4.f},.29f,0,ZLayer::T2,6,2);
+                    }
+                }
             }
         }
 
-        // PASS 3 — contextual support for slopes, portals, hazards and other
-        // non-square geometry. The previous mod silently ignored all of these.
-        // Group into broad 120px columns to avoid repetitive clutter.
+        // CONTEXT PASS: one architectural/background accent per broad zone
+        // of non-square gameplay geometry. Reusing the same square tiles here
+        // was the principal cause of the old monotonous scenery.
         std::unordered_map<int,std::pair<CCPoint,int>> zones;
         for(auto const& a:anchors) {
-            int key=int(std::floor(a.pos.x/120.f));
-            auto& zone=zones[key];
-            if(zone.second==0)zone.first=a.pos;
-            zone.second++;
+            int key=int(std::floor(a.pos.x/180.f));
+            auto& z=zones[key];
+            if(z.second==0)z.first=a.pos;
+            z.second++;
         }
-        std::vector<int> sortedZones;
-        for(auto const& pair:zones)sortedZones.push_back(pair.first);
-        std::sort(sortedZones.begin(),sortedZones.end());
-        int backdropID=style==Style::Neon?1168:style==Style::Tech?263:
-                       style==Style::Ruins?269:955;
-        int highlightID=style==Style::Neon?1195:style==Style::Tech?240:
-                        style==Style::Ruins?277:406;
-        for(int key:sortedZones) {
-            if(pieces.size()+2>=kMaxPieces)break;
-            auto const& zone=zones.at(key);
-            auto center=zone.first;
-            auto pulse=scramble(key,int(center.y/30.f),81);
-            // Place decorative supports 30px below interesting gameplay
-            // features, *behind* the action, without covering the hitboxes.
-            float y=center.y-30.f;
-            append(backdropID,{center.x,y},.62f,float(pulse%4)*90.f,ZLayer::B3,-2,0);
-            if(density==Detail::Rich || (density==Detail::Balanced && pulse%3==0)) {
-                append(highlightID,{center.x,y-16.f},.32f,float((pulse>>4)%4)*90.f,
-                       ZLayer::B2,-1,1);
+        std::vector<int> zoneIDs;
+        for(auto const& q:zones)zoneIDs.push_back(q.first);
+        std::sort(zoneIDs.begin(),zoneIDs.end());
+        for(auto k:zoneIDs) {
+            if(pieces.size()+8>=kMaxPieces)break;
+            auto center=zones.at(k).first;
+            uint32_t h=scramble(k,int(center.y/30),int(style)+23);
+            auto at=CCPoint{center.x,center.y-38.f};
+            if(style==Style::Neon) {
+                add(1888,at,.95f,0,ZLayer::B3,-3,0);
+                add(1887,at,.45f,0,ZLayer::B2,-2,2);
+                if(detailFactor>=1.f) {
+                    add(504,{at.x-13,at.y},.55f,90,ZLayer::B2,-2,1);
+                    add(504,{at.x+13,at.y},.55f,90,ZLayer::B2,-2,1);
+                }
+            } else if(style==Style::Tech) {
+                add(283,at,.70f,float((h%4)*90),ZLayer::B3,-3,0);
+                add(86,at,.37f,0,ZLayer::B2,-2,1);
+                if(detailFactor>=1.f)
+                    add(1887,at,.22f,0,ZLayer::B1,-1,2);
+            } else if(style==Style::Ruins) {
+                add(113,at,.60f,0,ZLayer::B3,-3,0);
+                add(110,{at.x,at.y+16.f},.35f,0,ZLayer::B2,-2,1);
+                if(detailFactor>1.f)
+                    add(114,{at.x+12.f,at.y-11.f},.30f,0,ZLayer::B2,-1,2);
+            } else {
+                add(222,at,.75f,0,ZLayer::B3,-3,0);
+                add(223,{at.x+10.f,at.y+6.f},.50f,0,ZLayer::B2,-2,1);
+                if(detailFactor>1.f)
+                    add(1887,{at.x-12.f,at.y-5.f},.28f,0,ZLayer::B1,-1,2);
             }
         }
-        // Configure THREE NEW PRIVATE COLOR CHANNELS per style. Unlike
-        // editor-only setColor these colors survive save/load of the level.
+                // Each generation gets its OWN persistent color channels, so changing
+        // palette on the next run never recolors earlier batches.
+        std::array<int,3> channels{0,0,0};
+        auto rgb=inkPalette(style,variant).colors;
         auto* manager=layer->m_effectManager;
-        auto styleIndex=static_cast<size_t>(style);
-        auto paletteRGB=inkPalette(style).colors;
-        auto& savedChannels=m_fields->colorChannels[styleIndex];
         if(manager) {
             for(int k=0;k<3;++k) {
-                if(savedChannels[k]==0) {
-                    int channel=layer->getNextColorChannel();
-                    if(channel>=1 && channel<=999) {
-                        auto* action=ColorAction::create(paletteRGB[k],false,0);
-                        if(action) {
-                            manager->setColorAction(action,channel);
-                            savedChannels[k]=channel;
-                        }
+                int channel=layer->getNextColorChannel();
+                if(channel>0 && channel<=999) {
+                    auto* action=ColorAction::create(rgb[k],false,0);
+                    if(action) {
+                        manager->setColorAction(action,channel);
+                        manager->processColors();
+                        channels[k]=channel;
                     }
                 }
             }
-            manager->processColors();
         }
-        m_fields->activeColorIDs=savedChannels;
-        m_fields->activeRGB=paletteRGB;
-
+        m_fields->activeColorIDs=channels;
+        m_fields->activeRGB=rgb;
         // Place 85 objects per frame to prevent editor stalls on big levels.
         m_fields->work = std::move(pieces);
         m_fields->liveIDs.clear();
@@ -469,6 +575,10 @@ class $modify(AutoDecorEditor, EditorUI) {
         m_fields->rejected = 0;
         m_fields->activeStyle = style;
         m_fields->busy = true;
+        if(m_fields->progressLabel) {
+            m_fields->progressLabel->setString("AUTO DECOR: 0%");
+            m_fields->progressLabel->setVisible(true);
+        }
         this->schedule(schedule_selector(AutoDecorEditor::processWork));
         geode::log::info("AutoDecor {}: scope={}, scanned={}, eligible={}, queued={}, filtered={}",
             name(style), m_fields->scope == Scope::WholeLevel ? "ALL" : "SELECTED",
@@ -482,6 +592,7 @@ class $modify(AutoDecorEditor, EditorUI) {
             m_fields->busy = false;
             m_fields->work.clear();
             m_fields->liveIDs.clear();
+            if(m_fields->progressLabel)m_fields->progressLabel->setVisible(false);
             return;
         }
         size_t end = std::min(m_fields->cursor + kFrameBudget, m_fields->work.size());
@@ -492,7 +603,10 @@ class $modify(AutoDecorEditor, EditorUI) {
             if (obj->m_objectType == GameObjectType::Hazard ||
                 obj->m_objectType == GameObjectType::AnimatedHazard ||
                 obj->m_objectType == GameObjectType::CollisionObject ||
-                obj->m_objectType == GameObjectType::Modifier) {
+                obj->m_objectType == GameObjectType::Modifier ||
+                obj->m_objectType == GameObjectType::Solid ||
+                obj->m_objectType == GameObjectType::Breakable ||
+                obj->m_objectType == GameObjectType::Slope) {
                 layer->removeObject(obj, false);
                 ++m_fields->rejected;
                 continue;
@@ -515,7 +629,13 @@ class $modify(AutoDecorEditor, EditorUI) {
             if (obj->m_uniqueID > 0) m_fields->liveIDs.push_back(obj->m_uniqueID);
             ++m_fields->created;
         }
+        if(m_fields->progressLabel && !m_fields->work.empty()) {
+            int progress=int(100.f*float(m_fields->cursor)/float(m_fields->work.size()));
+            std::string msg="AUTO DECOR: "+std::to_string(progress)+"%";
+            m_fields->progressLabel->setString(msg.c_str());
+        }
         if (m_fields->cursor == m_fields->work.size()) {
+            if(m_fields->progressLabel)m_fields->progressLabel->setVisible(false);
             this->unschedule(schedule_selector(AutoDecorEditor::processWork));
             auto n=m_fields->created;
             auto skipped=m_fields->rejected;
@@ -547,6 +667,7 @@ class $modify(AutoDecorEditor, EditorUI) {
             this->unschedule(schedule_selector(AutoDecorEditor::processWork));
             m_fields->busy = false;
             m_fields->work.clear();
+            if(m_fields->progressLabel)m_fields->progressLabel->setVisible(false);
             batch = std::move(m_fields->liveIDs);
             m_fields->liveIDs.clear();
         } else {

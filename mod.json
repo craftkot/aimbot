@@ -5,9 +5,9 @@
   },
   "id": "craftkot.autodecor",
   "name": "Auto Decor",
-  "version": "v0.6.1",
+  "version": "v0.7.0",
   "developer": "craftkot",
-  "description": "Geometry-aware decoration of solid blocks and background accents for slopes, hazards, portals; auto color channels, 4 styles, whole-level mode.",
+  "description": "Cohesive multi-layer procedural decoration with 16 harmonized color palettes, architectural motifs, slow progress and non-colliding detail; 4 styles.",
   "tags": [
     "editor",
     "utility",

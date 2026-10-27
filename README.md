@@ -1,20 +1,16 @@
-# Auto Decor 0.6.0 — Geometry Dash 2.2081, Windows
+# Auto Decor 0.7 — Geode / Geometry Dash 2.2081 (Windows)
 
-## Why it previously decorated only a handful of objects
-Auto Decor v0.5.0 classified only full, unrotated Solid/Breakable tiles on a lattice locked to the *first* source object. All the rest (slopes, hazards, special objects and off-grid geometry) were silently ignored. Auto-tiling also used opaque sprites without assigning the styles' color channels, producing generic white slabs.
+A major change from v0.6: 4 distinct styles, not repeated full-sized blocks. Generates in ~18 objects per frame and displays a progress indicator.
 
-## Changes in 0.6
-- Dominant grid-origin detection for solid tiles; alternate-offset solids become scenery anchors instead of vanishing.
-- Gameplay anchors: slopes, decorative shapes, portals, hazards and special objects receive limited BACKGROUND supports instead of dangerous overlapping opaque tile overlays.
-- Three own RGB color channels per theme; assignments are written to the level using Geode's color effect manager.
-- Main tiles placed behind original solid blocks (B1), with accents in foreground; no gameplay object intentionally replaced.
-- Kept modes TARGET ALL / SELECTED and clean/normal/rich levels.
-- Improved debug report showing source blocks, context anchors, generated counts.
-- Generation 85 objects per frame to avoid large editor freezes.
+**NEON:** layered thin glow, soft glow borders, large focal rings and small internal circuitry.
+**TECH:** mechanical panel texture, square/hex conduits, bolts, nested gear mechanisms and energy nodes.
+**RUINS:** masonry seams, mixed bricks, chipped accents, stone monuments and hanging chains.
+**NATURE:** upper-surface vegetation, internal rocky ground, flowers, suspended clouds and ambient fireflies.
 
-NOTE: non-square shapes are only given limited supporting background decor; they are *not* fully auto-tiled. This is an experimental geometry-aware procedural tool, not a professional ML decorator.
+Each style includes four color harmonies. The NEW COLORS button cycles the selection. Each generation allocates fresh three-channel base/trim/highlight colors, which are stored with the level.
 
-## TEST SAFELY
-Back up your level. Close Geometry Dash, replace `craftkot.autodecor.geode` inside `Geometry Dash/geode/mods`, reopen the editor, choose TARGET ALL, then NEON / NORMAL. Try a simple level with 15+ regular blocks, slopes and an orb/portal. Compare result with 0.5.0. The in-game rendering has NOT been verified automatically. Playtest and use Undo Deco if needed.
+Whole level / selected target and Clean/Normal/Rich modes remain. Decoration is scheduled in small batches, capped at 24,000 pieces. Collision solids, spikes and gameplay modifiers are explicitly rejected upon creation. Back up levels: undo tracking is session-local.
 
-Target: Steam GD 2.2081, Geode 5.11.2, Windows.
+**Limitations:** Visual aesthetic is unverified until an actual GD editor test. Smart tiling of slopes or complex gameplay structures is still approximated by contextual decorations, not hand-built art. Color changes and object layering should be tested on a copied level. Does not use neural networks or copyrighted external textures.
+
+Source and GitHub Actions build in this branch: feature/gd-autodecor-build.
