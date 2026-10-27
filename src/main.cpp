@@ -187,6 +187,10 @@ class $modify(AutoDecorEditor, EditorUI) {
         }
         std::unordered_map<Cell, CCPoint, CellHash> cells;
         cells.reserve(selected->count());
+        // GD grid centers can be offset (commonly 15 units), so use the
+        // first valid selected block as the lattice origin.
+        bool anchorSet = false;
+        float anchorX = 0.f, anchorY = 0.f;
         for (unsigned i = 0; i < selected->count(); ++i) {
             auto* o = static_cast<GameObject*>(selected->objectAtIndex(i));
             if (!o || o->m_objectType != GameObjectType::Solid) continue;
@@ -195,10 +199,15 @@ class $modify(AutoDecorEditor, EditorUI) {
                 std::abs(o->getScaleY()-1.f) > .04f) continue;
             auto p = o->getPosition();
             if (!std::isfinite(p.x) || !std::isfinite(p.y)) continue;
-            int x = int(std::lround(p.x/30.f));
-            int y = int(std::lround(p.y/30.f));
-            if (std::abs(p.x - 30.f*x) > 2.1f ||
-                std::abs(p.y - 30.f*y) > 2.1f) continue;
+            if (!anchorSet) {
+                anchorX = p.x;
+                anchorY = p.y;
+                anchorSet = true;
+            }
+            int x = int(std::lround((p.x-anchorX)/30.f));
+            int y = int(std::lround((p.y-anchorY)/30.f));
+            if (std::abs(p.x - (anchorX+30.f*x)) > 2.1f ||
+                std::abs(p.y - (anchorY+30.f*y)) > 2.1f) continue;
             cells[{x,y}] = p;
         }
         if (cells.empty()) {

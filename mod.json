@@ -5,9 +5,9 @@
   },
   "id": "craftkot.autodecor",
   "name": "Auto Decor",
-  "version": "v0.3.0",
+  "version": "v0.4.0",
   "developer": "craftkot",
-  "description": "Auto-tiling neon block geometry (connected edges and corners), four themes. GD 2.2081 Windows. Experimental.",
+  "description": "Four coordinated block decoration styles with topology-based framing, details, density modes and batch undo. GD 2.2081 Windows.",
   "tags": [
     "editor",
     "utility",
