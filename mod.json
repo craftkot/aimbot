@@ -1,0 +1,16 @@
+{
+  "geode": "v5.11.2",
+  "gd": {
+    "win": "2.208"
+  },
+  "id": "craftkot.autodecor",
+  "name": "Auto Decor",
+  "version": "v0.2.0",
+  "developer": "craftkot",
+  "description": "Procedural decoration for selected full blocks. Neon, Tech, Ruins, Nature. Windows only; save a copy of your level.",
+  "tags": [
+    "editor",
+    "utility",
+    "enhancement"
+  ]
+}

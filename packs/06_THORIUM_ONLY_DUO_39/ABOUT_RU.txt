@@ -1,4 +1,0 @@
-06_THORIUM_ONLY_DUO_39
-39 mods. No original Calamity Mod; no standalone music mods.
-Original mod .tmod files download separately through official Workshop.
-Not playtested in multiplayer; create a new world after enabling.

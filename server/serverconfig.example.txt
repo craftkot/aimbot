@@ -1,8 +1,0 @@
-# Example for a dedicated tModLoader server. Set your own local password.
-maxplayers=2
-port=7777
-autocreate=3
-worldname=CalamityFablesDUO
-difficulty=1
-# password=SET_YOUR_PRIVATE_PASSWORD_HERE
-motd=Calamity x Fables DUO

@@ -1,0 +1,23 @@
+name: Build Auto Decor Windows
+on:
+  push:
+    branches: [feature/gd-autodecor-build]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Geode mod
+        id: geode
+        uses: geode-sdk/build-geode-mod@main
+        with:
+          sdk: given
+          cli: latest
+          target: Win64
+      - name: Upload .geode
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoDecor-Windows
+          path: ${{ steps.geode.outputs.build-output }}
+          if-no-files-found: error
