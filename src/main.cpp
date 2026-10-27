@@ -552,14 +552,19 @@ class $modify(AutoDecorEditor, EditorUI) {
         auto rgb=inkPalette(style,variant).colors;
         auto* manager=layer->m_effectManager;
         if(manager) {
+            int priorChannel=0;
             for(int k=0;k<3;++k) {
-                int channel=layer->getNextColorChannel();
+                // getNextColorChannel can return the same free slot until
+                // generated objects begin using it. Enforce unique slots.
+                int channel=std::max(layer->getNextColorChannel(),priorChannel+1);
+                while(channel<=999 && manager->colorExists(channel)) ++channel;
                 if(channel>0 && channel<=999) {
                     auto* action=ColorAction::create(rgb[k],false,0);
                     if(action) {
                         manager->setColorAction(action,channel);
                         manager->processColors();
                         channels[k]=channel;
+                        priorChannel=channel;
                     }
                 }
             }
